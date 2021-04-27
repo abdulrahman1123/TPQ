@@ -1,0 +1,528 @@
+---
+title: "TPQ_R_Python"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include = False}
+library(reticulate)
+use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python")
+library(ggplot2)
+library(psy)
+```
+
+```{python Is the combined-subject IC composition determined mainly by HCs}
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO/icasso_tpq_reco/bootstrap/'
+
+fname_reco_all = path + 'icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.50_bootstrap_MNEinfomax_data_reco.npz'
+fname_reco_hc = path + 'icasso_HC_nsamp1202_n_comp13_n_iter100_dist0.50_bootstrap_MNEinfomax_data_reco.npz'
+fname_reco_mdd = path + 'icasso_MDD_nsamp455_n_comp06_n_iter100_dist0.45_bootstrap_MNEinfomax_data_reco.npz'
+ids_all = path + "../ids_all_sess1_2.npy"
+# load data
+npz_all = np.load(fname_reco_all, allow_pickle=True)
+npz_hc = np.load(fname_reco_hc, allow_pickle=True)
+npz_mdd = np.load(fname_reco_mdd, allow_pickle=True)
+npz_ids = np.load(ids_all, allow_pickle=True)
+
+#rearrange groups and IDs according to the IDs in npz_ids
+df = pd.read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQData_ICA_25.11.2020.xlsx")
+sub_inds = [np.where(df["ID"] == npz_ids[i])[0][0] for i in range(len(npz_ids))]
+groups = [df["Group"][item] for item in sub_inds]
+IDs = [df["ID"][item] for item in sub_inds]
+session = [df["Session"][item] for item in sub_inds]
+#create info_array which contains groups, IDs and session
+info_array = np.array([[groups[i], IDs[i], session[i]] for i in range(len(IDs))])
+print(info_array)
+
+
+average_all = np.average(npz_all['data_reco'],axis = 1)
+average_hc = np.average(npz_hc['data_reco'],axis = 1)
+average_mdd = np.average(npz_mdd['data_reco'],axis = 1)
+
+
+pd.DataFrame(np.transpose(average_all)).to_csv(path+"npz_all_avg.csv", index=False)
+pd.DataFrame(np.transpose(average_hc)).to_csv(path+"npz_hc_avg.csv", index=False)
+pd.DataFrame(np.transpose(average_mdd)).to_csv(path+"npz_mdd_avg.csv", index=False)
+
+# create data frames for each of the ICs and save it
+for i in range(npz_all['data_reco'].shape[0]):
+    IC_all = npz_all['data_reco'][i,:,:]
+
+    # add info arrays to data frames
+    IC_all = np.append(info_array,IC_all,axis = 1)
+
+    # convert to data frame
+    IC_all = pd.DataFrame(IC_all)
+
+    #change column names
+    colnames = ["Group","ID","Session"]
+    colnames+=list(range(1,101))
+    IC_all.columns = colnames
+
+    #save to csv
+    IC_all.to_csv(f"{path}IC_arrays/npz_all_{i}.csv", index=False)
+
+for i in range(npz_mdd['data_reco'].shape[0]):
+    IC_mdd = npz_mdd['data_reco'][i,:,:]
+    pd.DataFrame(IC_mdd).to_csv(f"{path}IC_arrays/npz_mdd_{i}.csv", index=False)
+
+for i in range(npz_hc['data_reco'].shape[0]):
+    IC_hc = npz_hc['data_reco'][i,:,:]
+    pd.DataFrame(IC_hc).to_csv(f"{path}IC_arrays/npz_hc_{i}.csv", index=False)
+
+
+```
+
+```{r  find c.alpha for MDD and HC (from within the IC_all)}
+#### 2. find c.alpha for MDD and HC (from within the IC_all)                   #
+#### and find the correlation between IC_mdd with IC_all, and IC_hc with IC_all#
+#### This will be done for the last component (supposedly the combined IC)     #####
+IC_Num_all <- 4
+IC_Num_hc <- 4
+IC_Num_mdd <- 2
+
+df_all = read.csv(paste0(path, "IC_arrays/npz_all_",IC_Num_all,".csv"))
+df_hc = read.csv(paste0(path, "IC_arrays/npz_hc_",IC_Num_hc,".csv"))
+df_mdd = read.csv(paste0(path, "IC_arrays/npz_mdd_",IC_Num_mdd,".csv"))
+
+
+
+
+cr_list_hc = vector()
+for (i in 1:100){
+  question_df = data.frame(df_all[1:1202,i+3],df_hc[,i])
+  colnames(question_df) = c(paste0("All_IC",IC_Num_all,"_Q",i),paste0("HC_IC",IC_Num_hc,"_Q",i))
+  cr_list_hc = append(cr_list_hc, cronbach(question_df)$alpha)
+}
+
+
+cr_list_mdd = vector()
+for (i in 1:100){
+  question_df = data.frame(df_all[df_all$Group=="MDD",i+3],df_mdd[,c(i)])
+  colnames(question_df) = c(paste0("All_IC",IC_Num_all,"_Q",i),paste0("HC_IC",IC_Num_mdd,"_Q",i))
+  cr_list_mdd = append(cr_list_mdd, cronbach(question_df)$alpha)
+}
+
+
+
+#exclude those above 1 or below -1
+cr_list_hc = cr_list_hc[cr_list_hc>-1 & cr_list_hc<1]
+cr_list_mdd = cr_list_mdd[cr_list_mdd>-1 & cr_list_mdd<1]
+
+mdd_mean_a = mean(abs(cr_list_mdd))
+hc_mean_a = mean(abs(cr_list_hc))
+
+Correlate(combined_df,"All","HC")
+Correlate(combined_df,"All","MDD")
+Correlate(combined_df,"HC","MDD")
+
+# HC are correlated with IC_all for the same subjects, MDD are less so
+################################################################################
+# Result:                                                                      #
+# c.alpha average for the 100 questions is higher for HC                       #
+################################################################################
+```
+
+```{r, warning=FALSE}
+library (ppcor)
+library(readxl)
+#### 3. find c.alpha for MDD and HC for each component within their own  ICs   #
+
+# create c.alpha for IC loadings and for patient scores
+#determine col types, then load the large data set
+#col types = 11 text, 17 numeruc, 1 text, 1 numeric, 6 text, 104 numeric and 100 text
+colTypes = c(rep("text",11),rep("numeric",17),rep("text",1),rep("numeric",1),rep("text",6),rep("numeric",104),rep("text",100))
+scores = read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx", col_types = colTypes)
+
+# convert 0 values to -1
+for (i in 1:100){
+  scores[paste0("Q",i)] = scores[paste0("Q",i)]*2-1
+}
+
+
+#load the loadings
+loadings_path = paste0(path,"/IC_arrays/","npz_all_",0,".csv")
+loadings = read.csv(loadings_path)
+
+
+#define a function to find the item position, to be used in "sapply" below
+m_fun <- function(x){
+  match(x, scores$`Final ID`)
+}
+HC_ids = loadings$ID[loadings$Group == "HC"]
+MDD_ids = loadings$ID[loadings$Group == "MDD"]
+HC_inds = sapply(HC_ids, m_fun)
+MDD_inds = sapply(MDD_ids, m_fun)
+
+
+weighted_scores_HC = scores[HC_inds,match("Q1", colnames(scores)):match("Q100", colnames(scores))]
+for (i in 1:100){
+  weighted_scores_HC[paste0("Q",i)] = scores[HC_inds,paste0("Q",i)] * loadings[loadings$Group == "HC",paste0("X",i)]
+}
+
+weighted_scores_MDD = scores[MDD_inds,match("Q1", colnames(scores)):match("Q100", colnames(scores))]
+for (i in 1:100){
+  weighted_scores_MDD[paste0("Q",i)] = scores[MDD_inds,paste0("Q",i)] * loadings[loadings$Group == "MDD",paste0("X",i)]
+}
+
+cronbach(weighted_scores_MDD[,-c(61,71)])
+cronbach(weighted_scores_HC[,-c(61,71)])
+cronbach(loadings[loadings$Group == "MDD",])
+
+################################################################################
+# Result:                                                                      #
+# The worst cronbach anyone would imagine                                      #
+################################################################################
+```
+
+```{python Fast_ICA difference between bootstrapped and non-boot strapped}
+import numpy as np
+path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO/icasso_tpq_reco/bootstrap/'
+# Next issue: does Fast ICA differ between bootstraping and no bootstraping?
+path_n_bootstrap = path + "../no_bootstrap/icasso_HC_nsamp1202_n_comp13_n_iter100_dist0.40_no-bootstrap_MNEfastica_data_reco.npz"
+path_bootstrap = path + "icasso_HC_nsamp1202_n_comp13_n_iter100_dist0.50_bootstrap_MNEfastica_data_reco.npz"
+
+npz_boot = np.load(path_bootstrap, allow_pickle=True)
+npz_n_boot = np.load(path_n_bootstrap, allow_pickle=True)
+
+# convert to list of data frames so that R can read it
+data_boot = [item for item in npz_boot['data_reco']]
+data_n_boot = [item for item in npz_n_boot['data_reco']]
+```
+
+
+
+```{r check the difference in FastICA between bootstrapping and no bootstrapping, warning=FALSE}
+colTypes = c(rep("text",11),rep("numeric",17),rep("text",1),rep("numeric",1),rep("text",6),rep("numeric",104),rep("text",100))
+scores = read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx", col_types = colTypes)
+scores = as.data.frame(scores)
+
+# convert T to 1 and F to -1, also convert "NA" to NA
+for (i in 1:100){
+  scores[scores[,paste0("QO",i)] =="NA",paste0("QO",i)] = NA
+  scores[!is.na(scores[paste0("QO",i)]),paste0("QO",i)] = ifelse(scores[!is.na(scores[paste0("QO",i)]),paste0("QO",i)]=="T","1","-1")
+  scores[,paste0("QO",i)] = as.numeric(scores[,paste0("QO",i)])
+}
+
+
+data_boot = py$data_boot
+data_n_boot = py$data_n_boot
+IC_df = data.frame(data_n_boot[1])
+
+weighted_df = scores[HC_inds, match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+for (i in 1:100){
+  weighted_df[paste0("QO",i)] = scores[HC_inds,paste0("QO",i)] * IC_df[paste0("X",i)]
+}
+
+
+# all correlations are either +1 or -1 with a p-value of 0
+# let's divide the questions to +vely correlated and -vely correlated
+matrix = cor(IC_df)
+positive_correlates = colnames(IC_df) %in% rownames(data.frame(matrix[1,][matrix[1,]>0]))
+negative_correlates = colnames(IC_df) %in% rownames(data.frame(matrix[1,][matrix[1,]<0]))
+
+#only take those with absolute value of >0.25
+averages = apply(IC_df,2,mean)
+inclusion_25 = abs(averages)>0.25
+
+#Also, notice that there are columns that are +ve and others that are -ve
+# first, find the averages
+averages = apply(IC_df,2,mean)
+positive_values = averages>0.25
+negative_values = averages < -0.25
+
+
+TPQ.pca = princomp(na.omit(weighted_df))
+factor_analysis = factanal(na.omit(weighted_df), factors = 4, lower=0.3)
+abs(factor_analysis$loadings)>0.3
+#now calculate cronbach alpha according to loadings' correlation
+cronbach(weighted_df[positive_correlates&inclusion_25])
+cronbach(weighted_df[negative_correlates&inclusion_25])
+
+#now calculate cronbach alpha according to loadings' values
+cronbach(weighted_df[positive_values])
+cronbach(weighted_df[negative_values])
+
+cronbach(weighted_df)
+
+
+```
+
+```{python Fast_ICA vs Infomax}
+import numpy as np
+import pandas as pd
+
+###############################################################
+#                     VERY IMPORTANT                          #
+# make sure that you use data frames of pandas and not numpy, #
+# otherwise they will be converted to faulty matrices         #
+###############################################################
+
+
+
+
+path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO/icasso_tpq_reco/bootstrap/'
+path_infomax = path + "icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.50_bootstrap_MNEinfomax_data_reco.npz"
+path_fastica = path + "icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.50_bootstrap_MNEfastica_data_reco.npz"
+path_noboot_fastica = path + "../no_bootstrap/icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_no-bootstrap_MNEfastica_data_reco.npz"
+path_ids = path + "../ids_all_sess1_2.npy"
+
+npz_info = np.load(path_infomax, allow_pickle=True)
+npz_fast = np.load(path_fastica, allow_pickle=True)
+npz_noboot_fast = np.load(path_noboot_fastica, allow_pickle=True)
+npz_ids = np.load(path_ids, allow_pickle=True)
+npz_ids = [[item] for item in npz_ids]
+
+# convert to list of data frames so that R can read it
+# I also added the IDs for each frame using np.append
+data_info = [pd.DataFrame(np.append(npz_ids,item, axis = 1)) for item in npz_info['data_reco']]
+data_fast = [pd.DataFrame(np.append(npz_ids,item, axis = 1)) for item in npz_fast['data_reco']]
+data_noboot_fast = [pd.DataFrame(np.append(npz_ids,item, axis = 1)) for item in npz_noboot_fast['data_reco']]
+data_noboot_fast[0]
+````
+
+
+```{r load all data for further analysis , warning=FALSE}
+library (ppcor)
+library(readxl)
+library(reshape2)
+library(ggplot2)
+library(dplyr)
+
+
+# determine coltypes before reading data
+colTypes = c(rep("text",11),rep("numeric",17),rep("text",1),rep("numeric",1),rep("text",6),rep("numeric",104),rep("text",100))
+
+
+#read the data
+scores = read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx", col_types = colTypes)
+
+
+#convert the tibble object (read by readxl) to ordinary data frame
+scores = as.data.frame(scores)
+
+
+# convert T to 1 and F to -1, also convert "NA" to NA
+for (i in 1:100){
+  scores[scores[,paste0("QO",i)] =="NA",paste0("QO",i)] = NA
+  scores[!is.na(scores[paste0("QO",i)]),paste0("QO",i)] = ifelse(scores[!is.na(scores[paste0("QO",i)]),paste0("QO",i)]=="T","1","-1")
+  scores[,paste0("QO",i)] = as.numeric(scores[,paste0("QO",i)])
+}
+
+
+# Make sure that 'scores' and 'loadings' data frames have the same arrangements
+loadings_IDs = data.frame(py$data_fast[1])$X0
+scores$arrangement = sapply(scores$`Final ID`, function(x) match(x,loadings_IDs))
+scores = arrange(scores,arrangement)
+scores = scores[!is.na(scores$arrangement),]
+
+# import python data
+data_info = list()
+data_fast = list()
+data_noboot_fast = list()
+
+for (i in 1:length(py$data_info)){
+  # column names variable
+  question_names = sapply(1:100, function(x) paste0("Q",x,"_load"))
+  ColNames = append("ID",question_names)
+  
+  # import python data as data frames
+  new_info = data.frame(py$data_info[i])
+  new_fast = data.frame(py$data_fast[i])
+  new_noboot_fast = data.frame(py$data_noboot_fast[i])
+  colnames(new_info) = ColNames
+  colnames(new_fast) = ColNames
+  colnames(new_noboot_fast) = ColNames
+  
+  # prepare diagnosis column
+  Diagnosis = scores$Diagnosis[!is.na(sapply(scores$`Final ID`, function(x) match(x,new_fast$ID)))]
+  
+  # convert data to numeric
+  new_info[-1]=apply(new_info[-1], 2, as.numeric)
+  new_fast[-1]=apply(new_fast[-1], 2, as.numeric)
+  new_noboot_fast[-1]=apply(new_noboot_fast[-1], 2, as.numeric)
+  
+  new_fast$arrangement = sapply(new_fast$ID, function(x) match(x,scores$`Final ID`))
+  new_fast = arrange(new_fast,arrangement)
+  new_fast = new_fast[!is.na(new_fast$arrangement),]
+  new_fast$Diagnosis = Diagnosis
+  
+  new_noboot_fast$arrangement = sapply(new_noboot_fast$ID, function(x) match(x,scores$`Final ID`))
+  new_noboot_fast = arrange(new_noboot_fast,arrangement)
+  new_noboot_fast = new_noboot_fast[!is.na(new_noboot_fast$arrangement),]
+  new_noboot_fast$Diagnosis = Diagnosis
+  
+
+  new_info$arrangement = sapply(new_info$ID, function(x) match(x,scores$`Final ID`))
+  new_info = arrange(new_info,arrangement)
+  new_info = new_info[!is.na(new_info$arrangement),]
+  new_info$Diagnosis = Diagnosis
+  
+  data_fast[[i]] = new_fast
+  data_noboot_fast[[i]] = new_noboot_fast
+  data_info[[i]] = new_info
+}
+
+
+weighted_fast_list = list()
+weighted_noboot_fast_list = list()
+weighted_info_list = list()
+for (i in 1:length(data_fast)){
+  IC_fast = data_fast[[i]]
+  IC_noboot_fast = data_noboot_fast[[i]]
+  IC_info = data_info[[i]]
+  weighted_fast = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+  weighted_noboot_fast = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+  weighted_info = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+  
+  # calculate the loadings
+  for (k in 1:100){
+    weighted_fast[paste0("QO",k)] = scores[paste0("QO",k)] * IC_fast[paste0("Q",k,"_load")]
+    weighted_noboot_fast[paste0("QO",k)] = scores[paste0("QO",k)] * IC_noboot_fast[paste0("Q",k,"_load")]
+    weighted_info[paste0("QO",k)] = scores[paste0("QO",k)] * IC_info[paste0("Q",k,"_load")]
+  }
+  weighted_fast[c("ID","Diagnosis")] = IC_fast[c("ID","Diagnosis")]
+  weighted_noboot_fast[c("ID","Diagnosis")] = IC_fast[c("ID","Diagnosis")]
+  weighted_info[c("ID","Diagnosis")] = IC_fast[c("ID","Diagnosis")]
+  
+  weighted_fast_list[[i]] = weighted_fast
+  weighted_noboot_fast_list[[i]] = weighted_noboot_fast
+  weighted_info_list[[i]] = weighted_info
+}
+```
+
+```{r check percentage of explained variance, warning=FALSE}
+# Now we check the explained variance
+#create empty vectors for percentage of explained variance 
+p_var_fast = vector()
+p_var_noboot_fast = vector()
+p_var_info = vector()
+
+for (i in 1:length(data_fast)){
+  weighted_fast = weighted_fast_list[[i]]
+  weighted_noboot_fast = weighted_noboot_fast_list[[i]]
+  weighted_info = weighted_info_list[[i]]
+  
+  # calculate explained variability percentage 
+  var_fast = 100-100*mean(var(weighted_fast[1:100]-scores[c(141:240)],na.rm = TRUE),na.rm = TRUE)/mean(var(scores[c(141:240)]), na.rm = TRUE)
+  var_noboot_fast = 100-100*mean(var(weighted_noboot_fast[1:100]-scores[c(141:240)],na.rm = TRUE),na.rm = TRUE)/mean(var(scores[c(141:240)]), na.rm = TRUE)
+  var_info = 100-100*mean(var(weighted_info[1:100]-scores[c(141:240)],na.rm = TRUE),na.rm = FALSE)/mean(var(scores[c(141:240)]), na.rm = TRUE)
+  p_var_fast = append(p_var_fast, var_fast)
+  p_var_noboot_fast = append(p_var_noboot_fast, var_noboot_fast)
+  p_var_info = append(p_var_info, var_info)
+}
+
+# plot the result
+TypicalTheme=theme_bw(base_size = 16,base_family = "Times")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
+                                                                  plot.subtitle = element_text(hjust = 0.5,face = "italic"))
+
+Data = data.frame(id=1:5, FastICA_bootstrap = p_var_fast, FastICA_no_bootstap = p_var_noboot_fast, Infomax_bootstap = p_var_info)
+Data = melt(Data,id.vars = "id",value.name = "p_var_explained", variable.name = "IC_Type")
+ggplot(Data,mapping = aes(x=id, y= p_var_explained, fill = IC_Type, group = IC_Type))+
+  geom_bar(stat="identity",position = position_dodge(0.9),color = "black")+
+  scale_y_continuous(name = "Percentage of Explained Variance")+
+  scale_x_continuous(name = "IC #")+
+  scale_fill_manual(values = c("#Eb4C42","#C33E3B","#4EA3DF","#6cBE58"))+
+  TypicalTheme+
+  ggtitle("% Explained Variance for Variable ICASSO Approaches")
+  
+```
+
+```{r check the pure differences in the five ICs of FastICA and Infomax, warning=FALSE}
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+
+
+for (i in 1:5){
+  for (n in 1:length(TPQQuestions)){
+    item = TPQQuestions[[n]]
+    i_name = names(TPQQuestions)[n]
+    # calculate the main dimensions from the original scores
+    weighted_fast_list[[i]][i_name] = scores[i_name]
+    weighted_noboot_fast_list[[i]][i_name] = scores[i_name]
+    weighted_info_list[[i]][i_name] = scores[i_name]
+      
+    # create a weighted HA
+    weighted_fast_list[[i]][paste0("weight_",i_name)] = apply(weighted_fast_list[[i]][item],1,sum, na.rm = TRUE)
+    weighted_noboot_fast_list[[i]][paste0("weight_",i_name)] = apply(weighted_noboot_fast_list[[i]][item],1,sum, na.rm = TRUE)
+    weighted_info_list[[i]][paste0("weight_",i_name)] = apply(weighted_info_list[[i]][item],1,sum, na.rm = TRUE)
+  }
+}
+text_form = as.formula(paste0("NS ~ ",paste(colnames(weighted_fast)[TPQQuestions$HA],collapse = " + ")))
+summary(lm(text_form, data = scores))
+summary(lm(text_form, data = weighted_fast_list[[1]]))
+
+colnames(weighted_fast)[TPQQuestions$HA]
+# create a new data frame to plot all densities
+melt_data <- function(data_frame){
+  # this function creates data list with D1 as the first digit of the question
+  # and D2 as the second one (for plotting it as a table)
+  # also, density is calculated in the middle of values, if it is >0.05 of max density, 
+  # this variable will be considered a binomial-density variable
+  Data = melt(data_frame,measure.vars = c(1:100), id.vars = "ID")
+  Data$D1 = rep(0:9,each = 18190)
+  Data$D2 = rep(rep(1:10,each = 1819),10)
+  for (ll in levels(da$variable)){
+    dd = density(Data$value[Data$variable == ll], na.rm = TRUE)
+    Data$binomial[Data$variable == ll] = ifelse(dd$y[dd$x==min(dd$x[dd$x>0])]/max(dd$y) > 0.05, "","B")
+  }
+  #only the last item should be present (so that when I plot, only one character is plotted, 
+  # rather than all being plotted 1819 times over each other)
+  Data$binomial[(rep(1:181900)/1819)%%1 != 0] = ""
+  binomialcount = sum(Data$binomial[(rep(1:181900)/1819)%%1 == 0] == "B")
+  Data$binomial[Data$binomial=="B"] = paste0("B",binomialcount)
+  return(Data)
+}
+
+
+
+ggplot(data = melt_data(weighted_fast_list[[1]]),mapping = aes(x=value))+
+  geom_density()+
+  facet_grid(D1~D2,scales = "free_y")+
+  geom_text(mapping = aes(y=10,x=-0.5,label=binomial, color = "red"))
+
+Correlate(weighted_info_list[[1]], "HA","QO38")
+```
+
+```{r trials, warning=FALSE}
+#if(require(MASS)){
+library(MASS)
+library(fastICA)
+x <- mvrnorm(n = 1000, mu = c(0, 0), Sigma = matrix(c(10, 3, 3, 1), 2, 2))
+x1 <- mvrnorm(n = 1000, mu = c(-1, 2), Sigma = matrix(c(10, 3, 3, 1), 2, 2))
+X <- rbind(x, x1)
+a <- fastICA(X, 2, alg.typ = "deflation", fun = "logcosh", alpha = 1,
+             method = "R", row.norm = FALSE, maxit = 200,
+             tol = 0.0001, verbose = TRUE)
+par(mfrow = c(1, 3))
+plot(x, main = "Pre-processed data")
+plot(a$X, main = "Pre-processed data")
+plot(a$X %*% a$K, main = "PCA components")
+plot(a$S, main = "ICA components")
+
+fastICA(scores[141:240], 2, alg.typ = "deflation", fun = "logcosh", alpha = 1,
+             method = "R", row.norm = FALSE, maxit = 200,
+             tol = 0.0001, verbose = TRUE)
+```
+
+```{python trials}
+
+```
