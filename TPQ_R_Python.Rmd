@@ -7,7 +7,12 @@ output:
 
 ```{r setup, include = False}
 library(reticulate)
-use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python")
+if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/python")){
+  use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python")
+}else{
+  use_python ("/home/asawalma/anaconda3/envs/mne/bin/python")
+}
+
 library(ggplot2)
 library(psy)
 ```
@@ -256,7 +261,7 @@ cronbach(weighted_df)
 ```{python Fast_ICA vs Infomax}
 import numpy as np
 import pandas as pd
-
+import os
 ###############################################################
 #                     VERY IMPORTANT                          #
 # make sure that you use data frames of pandas and not numpy, #
@@ -265,8 +270,9 @@ import pandas as pd
 
 
 
-
 path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO/icasso_tpq_reco/bootstrap/'
+if not os.path.exists(path):
+  path = path.replace("/abdulrahman/abdulrahman.sawalma@gmail.com","/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
 path_infomax = path + "icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.50_bootstrap_MNEinfomax_data_reco.npz"
 path_fastica = path + "icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.50_bootstrap_MNEfastica_data_reco.npz"
 path_noboot_fastica = path + "../no_bootstrap/icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_no-bootstrap_MNEfastica_data_reco.npz"
@@ -300,7 +306,11 @@ colTypes = c(rep("text",11),rep("numeric",17),rep("text",1),rep("numeric",1),rep
 
 
 #read the data
-scores = read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx", col_types = colTypes)
+score_path = "/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx"
+if (!dir.exists(score_path)){
+  score_path = gsub("/abdulrahman/abdulrahman.sawalma@gmail.com","/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive", score_path)
+}
+scores = read_excel(score_path, col_types = colTypes)
 
 
 #convert the tibble object (read by readxl) to ordinary data frame
@@ -321,79 +331,59 @@ scores$arrangement = sapply(scores$`Final ID`, function(x) match(x,loadings_IDs)
 scores = arrange(scores,arrangement)
 scores = scores[!is.na(scores$arrangement),]
 
-# import python data
-data_info = list()
-data_fast = list()
-data_noboot_fast = list()
 
-for (i in 1:length(py$data_info)){
+
+prepare_data <- function(data_frame){
+  # formats the data to have these columns ID, Diagnosis, 100 loadings
+  # also, makes sure that the arrangement in these data frams is the same as the data frame "scores"
+  
   # column names variable
   question_names = sapply(1:100, function(x) paste0("Q",x,"_load"))
   ColNames = append("ID",question_names)
   
   # import python data as data frames
-  new_info = data.frame(py$data_info[i])
-  new_fast = data.frame(py$data_fast[i])
-  new_noboot_fast = data.frame(py$data_noboot_fast[i])
-  colnames(new_info) = ColNames
-  colnames(new_fast) = ColNames
-  colnames(new_noboot_fast) = ColNames
-  
+  colnames(data_frame) = ColNames
+
   # prepare diagnosis column
-  Diagnosis = scores$Diagnosis[!is.na(sapply(scores$`Final ID`, function(x) match(x,new_fast$ID)))]
+  Diagnosis = scores$Diagnosis[!is.na(sapply(scores$`Final ID`, function(x) match(x,data_frame$ID)))]
   
   # convert data to numeric
-  new_info[-1]=apply(new_info[-1], 2, as.numeric)
-  new_fast[-1]=apply(new_fast[-1], 2, as.numeric)
-  new_noboot_fast[-1]=apply(new_noboot_fast[-1], 2, as.numeric)
-  
-  new_fast$arrangement = sapply(new_fast$ID, function(x) match(x,scores$`Final ID`))
-  new_fast = arrange(new_fast,arrangement)
-  new_fast = new_fast[!is.na(new_fast$arrangement),]
-  new_fast$Diagnosis = Diagnosis
-  
-  new_noboot_fast$arrangement = sapply(new_noboot_fast$ID, function(x) match(x,scores$`Final ID`))
-  new_noboot_fast = arrange(new_noboot_fast,arrangement)
-  new_noboot_fast = new_noboot_fast[!is.na(new_noboot_fast$arrangement),]
-  new_noboot_fast$Diagnosis = Diagnosis
-  
+  data_frame[-1]=apply(data_frame[-1], 2, as.numeric)
 
-  new_info$arrangement = sapply(new_info$ID, function(x) match(x,scores$`Final ID`))
-  new_info = arrange(new_info,arrangement)
-  new_info = new_info[!is.na(new_info$arrangement),]
-  new_info$Diagnosis = Diagnosis
+  data_frame$arrangement = sapply(data_frame$ID, function(x) match(x,scores$`Final ID`))
+  data_frame = arrange(data_frame,arrangement)
+  data_frame = data_frame[!is.na(data_frame$arrangement),]
+  data_frame$Diagnosis = Diagnosis
   
-  data_fast[[i]] = new_fast
-  data_noboot_fast[[i]] = new_noboot_fast
-  data_info[[i]] = new_info
+  return (data_frame)
 }
 
-
-weighted_fast_list = list()
-weighted_noboot_fast_list = list()
-weighted_info_list = list()
-for (i in 1:length(data_fast)){
-  IC_fast = data_fast[[i]]
-  IC_noboot_fast = data_noboot_fast[[i]]
-  IC_info = data_info[[i]]
-  weighted_fast = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
-  weighted_noboot_fast = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
-  weighted_info = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+create_weights <- function(data_frame){
+  # a function to calculate the weights for all questions
+  # returns a data frame of weighted values
+  # start with a data frame by copying "scores", then apply everything on it
+  weighted_df = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
   
   # calculate the loadings
   for (k in 1:100){
-    weighted_fast[paste0("QO",k)] = scores[paste0("QO",k)] * IC_fast[paste0("Q",k,"_load")]
-    weighted_noboot_fast[paste0("QO",k)] = scores[paste0("QO",k)] * IC_noboot_fast[paste0("Q",k,"_load")]
-    weighted_info[paste0("QO",k)] = scores[paste0("QO",k)] * IC_info[paste0("Q",k,"_load")]
+    weighted_df[paste0("QO",k)] = scores[paste0("QO",k)] * data_frame[paste0("Q",k,"_load")]
   }
-  weighted_fast[c("ID","Diagnosis")] = IC_fast[c("ID","Diagnosis")]
-  weighted_noboot_fast[c("ID","Diagnosis")] = IC_fast[c("ID","Diagnosis")]
-  weighted_info[c("ID","Diagnosis")] = IC_fast[c("ID","Diagnosis")]
+  weighted_df[c("ID","Diagnosis")] = data_frame[c("ID","Diagnosis")]
   
-  weighted_fast_list[[i]] = weighted_fast
-  weighted_noboot_fast_list[[i]] = weighted_noboot_fast
-  weighted_info_list[[i]] = weighted_info
+  return(weighted_df)
 }
+
+# make 3 lists for python data, prepare these data then add them to the lists
+data_info = lapply(1:length(py$data_info), function(x) prepare_data(data.frame(py$data_info[x])))
+data_fast = lapply(1:length(py$data_fast), function(x) prepare_data(data.frame(py$data_fast[x])))
+data_noboot_fast = lapply(1:length(py$data_noboot_fast), function(x) prepare_data(data.frame(py$data_noboot_fast[x])))
+
+
+# calculate the weights of all data frames
+weighted_fast_list = lapply(1:length(data_fast),function(x) create_weights(data_fast[[x]]))
+weighted_noboot_fast_list = lapply(1:length(data_noboot_fast),function(x) create_weights(data_noboot_fast[[x]]))
+weighted_info_list = lapply(1:length(data_info),function(x) create_weights(data_info[[x]]))
+
 ```
 
 ```{r check percentage of explained variance, warning=FALSE}
@@ -403,34 +393,59 @@ p_var_fast = vector()
 p_var_noboot_fast = vector()
 p_var_info = vector()
 
-for (i in 1:length(data_fast)){
-  weighted_fast = weighted_fast_list[[i]]
-  weighted_noboot_fast = weighted_noboot_fast_list[[i]]
-  weighted_info = weighted_info_list[[i]]
-  
+calc_var_perc <- function(data_frame_1,data_frame_2){
+  # function to calculate percentage of explained variance
   # calculate explained variability percentage 
-  var_fast = 100-100*mean(var(weighted_fast[1:100]-scores[c(141:240)],na.rm = TRUE),na.rm = TRUE)/mean(var(scores[c(141:240)]), na.rm = TRUE)
-  var_noboot_fast = 100-100*mean(var(weighted_noboot_fast[1:100]-scores[c(141:240)],na.rm = TRUE),na.rm = TRUE)/mean(var(scores[c(141:240)]), na.rm = TRUE)
-  var_info = 100-100*mean(var(weighted_info[1:100]-scores[c(141:240)],na.rm = TRUE),na.rm = FALSE)/mean(var(scores[c(141:240)]), na.rm = TRUE)
-  p_var_fast = append(p_var_fast, var_fast)
-  p_var_noboot_fast = append(p_var_noboot_fast, var_noboot_fast)
-  p_var_info = append(p_var_info, var_info)
+  var_perc = 100-100*mean(var(data_frame_1-data_frame_2,na.rm = TRUE),na.rm = FALSE)/mean(var(data_frame_2), na.rm = TRUE)
+  return(var_perc)
 }
 
-# plot the result
-TypicalTheme=theme_bw(base_size = 16,base_family = "Times")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
-                                                                  plot.subtitle = element_text(hjust = 0.5,face = "italic"))
+p_var_fast = sapply(1:length(weighted_fast_list),function(x) calc_var_perc(weighted_fast_list[[x]][1:100], scores[141:240]))
+p_var_noboot_fast = sapply(1:length(weighted_noboot_fast_list),function(x) calc_var_perc(weighted_noboot_fast_list[[x]][1:100], scores[141:240]))
+p_var_info = sapply(1:length(weighted_info_list),function(x) calc_var_perc(weighted_info_list[[x]][1:100], scores[141:240]))
 
-Data = data.frame(id=1:5, FastICA_bootstrap = p_var_fast, FastICA_no_bootstap = p_var_noboot_fast, Infomax_bootstap = p_var_info)
+
+# plot the result
+TypicalTheme=theme_bw(base_size = 16,base_family = "Times")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5,face = "italic"))
+
+Data = data.frame(id=1:14, FastICA_bootstrap = append(p_var_fast,rep(0,9)), FastICA_no_bootstap = p_var_noboot_fast, Infomax_bootstap = append(p_var_info,rep(0,9)))
 Data = melt(Data,id.vars = "id",value.name = "p_var_explained", variable.name = "IC_Type")
-ggplot(Data,mapping = aes(x=id, y= p_var_explained, fill = IC_Type, group = IC_Type))+
+ggplot(Data[Data$p_var_explained>0 & Data$IC_Type != "FastICA_no_bootstap",],mapping = aes(x=id, y= p_var_explained, fill = IC_Type, group = IC_Type))+
   geom_bar(stat="identity",position = position_dodge(0.9),color = "black")+
   scale_y_continuous(name = "Percentage of Explained Variance")+
   scale_x_continuous(name = "IC #")+
-  scale_fill_manual(values = c("#Eb4C42","#C33E3B","#4EA3DF","#6cBE58"))+
+  scale_fill_manual(values = c("#Eb4C42","#4EA3DF","#6cBE58"))+
   TypicalTheme+
   ggtitle("% Explained Variance for Variable ICASSO Approaches")
-  
+
+ggplot(Data[Data$IC_Type != "Infomax_bootstap",],mapping = aes(x=id, y= p_var_explained, fill = IC_Type, group = IC_Type))+
+  geom_bar(stat="identity",position = position_dodge(0.9),color = "black")+
+  scale_y_continuous(name = "Percentage of Explained Variance")+
+  scale_x_continuous(name = "IC #")+
+  scale_fill_manual(values = c("#C33E3B","#6cBE58"))+
+  TypicalTheme+
+  ggtitle("% Explained Variance for Variable ICASSO Approaches")
+
+calc_var_perc(weighted_fast_list[[4]][1:100],weighted_fast_list[[5]][1:100])
+calc_var_perc(weighted_info_list[[1]][1:100],weighted_info_list[[5]][1:100])
+calc_var_perc(weighted_noboot_fast_list[[4]][1:100],weighted_noboot_fast_list[[5]][1:100])
+
+# percentage of explained variance is very different when we look at infomax
+# I will have a look at the mean
+
+sum_rows <- function (data_list,n){
+  c_name = colnames(data_list[[1]])[n]
+  ss = sapply(1:length(data_list), function(x) data_list[[x]][c_name])
+  r_sum = list(rowSums(data.frame(ss),na.rm = TRUE)/length(data_list))
+  names(r_sum) = c_name
+  return(r_sum)
+}
+
+new_fast = data.frame(lapply(1:100, function (x) sum_rows(weighted_fast_list,x)))
+new_noboot_fast = data.frame(lapply(1:100, function (x) sum_rows(weighted_noboot_fast_list,x)))
+new_info = data.frame(lapply(1:100, function (x) sum_rows(weighted_info_list,x)))
+
+calc_var_perc(new_info,scores[141:240])
 ```
 
 ```{r check the pure differences in the five ICs of FastICA and Infomax, warning=FALSE}
@@ -451,25 +466,52 @@ TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
                     RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
 
 
-for (i in 1:5){
+for (i in 1:length(weighted_noboot_fast_list)){
   for (n in 1:length(TPQQuestions)){
     item = TPQQuestions[[n]]
     i_name = names(TPQQuestions)[n]
     # calculate the main dimensions from the original scores
-    weighted_fast_list[[i]][i_name] = scores[i_name]
+    if (i<6){
+      weighted_fast_list[[i]][i_name] = scores[i_name]
+      weighted_info_list[[i]][i_name] = scores[i_name]
+    }
     weighted_noboot_fast_list[[i]][i_name] = scores[i_name]
-    weighted_info_list[[i]][i_name] = scores[i_name]
       
     # create a weighted HA
-    weighted_fast_list[[i]][paste0("weight_",i_name)] = apply(weighted_fast_list[[i]][item],1,sum, na.rm = TRUE)
+    if (i<6){
+      weighted_fast_list[[i]][paste0("weight_",i_name)] = apply(weighted_fast_list[[i]][item],1,sum, na.rm = TRUE)
+      weighted_info_list[[i]][paste0("weight_",i_name)] = apply(weighted_info_list[[i]][item],1,sum, na.rm = TRUE)
+    }
     weighted_noboot_fast_list[[i]][paste0("weight_",i_name)] = apply(weighted_noboot_fast_list[[i]][item],1,sum, na.rm = TRUE)
-    weighted_info_list[[i]][paste0("weight_",i_name)] = apply(weighted_info_list[[i]][item],1,sum, na.rm = TRUE)
   }
 }
-text_form = as.formula(paste0("NS ~ ",paste(colnames(weighted_fast)[TPQQuestions$HA],collapse = " + ")))
-summary(lm(text_form, data = scores))
-summary(lm(text_form, data = weighted_fast_list[[1]]))
 
+calc_r <- function(var_name, data_frame){
+  text_form = as.formula(paste0(var_name," ~ ",paste(colnames(weighted_fast)[TPQQuestions[[var_name]]],collapse = " + ")))
+  r_original = round(100*summary(lm(text_form, data = scores))$adj.r.squared,1)
+  r_weighted = round(100*summary(lm(text_form, data = data_frame))$adj.r.squared,1)
+  text = paste0(var_name,": r2 for original scores =", r_original, "% ... r2 for weighted scores =", r_weighted,"%")
+  print(text)
+  return(r_weighted)
+}
+
+
+fast_ns = mean(sapply(1:length(weighted_fast_list),function(x) calc_r("NS", weighted_fast_list[[x]])))
+fast_ha = mean(sapply(1:length(weighted_fast_list),function(x) calc_r("HA", weighted_fast_list[[x]])))
+fast_rd = mean(sapply(1:length(weighted_fast_list),function(x) calc_r("RD", weighted_fast_list[[x]])))
+
+
+noboot_fast_ns = mean(sapply(1:length(weighted_noboot_fast_list),function(x) calc_r("NS", weighted_noboot_fast_list[[x]])))
+noboot_fast_ha = mean(sapply(1:length(weighted_noboot_fast_list),function(x) calc_r("HA", weighted_noboot_fast_list[[x]])))
+noboot_fast_rd = mean(sapply(1:length(weighted_noboot_fast_list),function(x) calc_r("RD", weighted_noboot_fast_list[[x]])))
+
+
+info_ns = mean(sapply(1:length(weighted_info_list),function(x) calc_r("NS", weighted_info_list[[x]])))
+info_ha = mean(sapply(1:length(weighted_info_list),function(x) calc_r("HA", weighted_info_list[[x]])))
+info_rd = mean(sapply(1:length(weighted_info_list),function(x) calc_r("RD", weighted_info_list[[x]])))
+
+```
+```{r check binomiality, or the percentage of binomial ICs, warning=FALSE}
 colnames(weighted_fast)[TPQQuestions$HA]
 # create a new data frame to plot all densities
 melt_data <- function(data_frame){
