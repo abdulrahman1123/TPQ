@@ -699,6 +699,7 @@ plot(a$S, main = "ICA components")
 fastICA(scores[141:240], 2, alg.typ = "deflation", fun = "logcosh", alpha = 1,
              method = "R", row.norm = FALSE, maxit = 200,
              tol = 0.0001, verbose = TRUE)
+
 ```
 
 
