@@ -6,6 +6,8 @@ output:
 ---
 
 ```{r setup, include = False}
+options(device = "X11")
+
 library(reticulate)
 if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/python")){
   use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python")
@@ -262,6 +264,8 @@ cronbach(weighted_df)
 import numpy as np
 import pandas as pd
 import os
+import matplotlib.pyplot as plt
+
 ###############################################################
 #                     VERY IMPORTANT                          #
 # make sure that you use data frames of pandas and not numpy, #
@@ -335,7 +339,7 @@ scores = scores[!is.na(scores$arrangement),]
 
 prepare_data <- function(data_frame){
   # formats the data to have these columns ID, Diagnosis, 100 loadings
-  # also, makes sure that the arrangement in these data frams is the same as the data frame "scores"
+  # also, makes sure that the arrangement in these data frames is the same as the data frame "scores"
   
   # column names variable
   question_names = sapply(1:100, function(x) paste0("Q",x,"_load"))
@@ -510,9 +514,15 @@ info_ns = mean(sapply(1:length(weighted_info_list),function(x) calc_r("NS", weig
 info_ha = mean(sapply(1:length(weighted_info_list),function(x) calc_r("HA", weighted_info_list[[x]])))
 info_rd = mean(sapply(1:length(weighted_info_list),function(x) calc_r("RD", weighted_info_list[[x]])))
 
+mm = matrix(c(fast_ns, fast_ha,fast_rd,
+         noboot_fast_ns, noboot_fast_ha,noboot_fast_rd,
+         info_ns, info_ha,info_rd), nrow = 3, byrow = TRUE)
+colnames(mm)=c("NS","HA","RD")
+rownames(mm) = c("fast_boot", "fast_noboot","infomax_boot")
+
 ```
+
 ```{r check binomiality, or the percentage of binomial ICs, warning=FALSE}
-colnames(weighted_fast)[TPQQuestions$HA]
 # create a new data frame to plot all densities
 melt_data <- function(data_frame){
   # this function creates data list with D1 as the first digit of the question
@@ -522,7 +532,7 @@ melt_data <- function(data_frame){
   Data = melt(data_frame,measure.vars = c(1:100), id.vars = "ID")
   Data$D1 = rep(0:9,each = 18190)
   Data$D2 = rep(rep(1:10,each = 1819),10)
-  for (ll in levels(da$variable)){
+  for (ll in levels(Data$variable)){
     dd = density(Data$value[Data$variable == ll], na.rm = TRUE)
     Data$binomial[Data$variable == ll] = ifelse(dd$y[dd$x==min(dd$x[dd$x>0])]/max(dd$y) > 0.05, "","B")
   }
@@ -531,17 +541,143 @@ melt_data <- function(data_frame){
   Data$binomial[(rep(1:181900)/1819)%%1 != 0] = ""
   binomialcount = sum(Data$binomial[(rep(1:181900)/1819)%%1 == 0] == "B")
   Data$binomial[Data$binomial=="B"] = paste0("B",binomialcount)
-  return(Data)
+  return(list(Data,binomialcount))
 }
 
 
 
-ggplot(data = melt_data(weighted_fast_list[[1]]),mapping = aes(x=value))+
+ggplot(data = melt_data(weighted_fast_list[[1]])[[1]],mapping = aes(x=value))+
   geom_density()+
   facet_grid(D1~D2,scales = "free_y")+
   geom_text(mapping = aes(y=10,x=-0.5,label=binomial, color = "red"))
 
-Correlate(weighted_info_list[[1]], "HA","QO38")
+bi_fast_count = append(sapply(1:length(weighted_fast_list), function(x) melt_data(weighted_fast_list[[x]])[[2]]),rep(0,9))
+bi_noboot_fast_count = sapply(1:length(weighted_noboot_fast_list), function(x) melt_data(weighted_noboot_fast_list[[x]])[[2]])
+bi_info_count = append(sapply(1:length(weighted_info_list), function(x) melt_data(weighted_info_list[[x]])[[2]]),rep(0,9))
+
+m_bi = matrix(c(bi_fast_count, bi_noboot_fast_count, bi_info_count), nrow = 14,byrow=FALSE)
+rownames(m_bi) = 1:14
+colnames(m_bi) = c("Fast_boot","Fast_noboot","Infomax_boot")
+d_bi = melt(data.frame(m_bi))
+d_bi$IC_data_num = rep(1:14,3)
+ggplot(data = d_bi, mapping = aes(x = IC_data_num, y=value, group = variable, fill=variable))+
+  geom_bar(stat = "identity",position = position_dodge(0.9),color = "black")+
+  scale_y_continuous(name = "Number of Binomial Questions")+
+  scale_x_continuous(name = "IC #")+
+  scale_fill_manual(values = c("#Eb4C42","#4EA3DF","#6cBE58"))+
+  ggtitle("Binomial Question Count in all ICs in all IC Methods")+
+  TypicalTheme
+```
+
+
+```{r check differences between diagnosis groups}
+
+
+prepare_data_means <- function(var_name, data_frame){
+  weighted_name = paste0("weight_",var_name)
+  data_frame$Diagnosis = as.factor(data_frame$Diagnosis)
+  data_frame$Diagnosis = relevel(data_frame$Diagnosis,ref = "HC")
+  
+  weight_ll = lm(weight_HA~Diagnosis, data = data_frame[complete.cases(data_frame[weighted_name]),])
+  ll = lm(HA~Diagnosis, data = data_frame[complete.cases(data_frame$weight_HA),])
+
+  Data1 = SMeans(data_frame, DV = weighted_name, IVs = c("Diagnosis"),GroupBy = "Diagnosis")
+  Data2 = SMeans(data_frame, DV = var_name, IVs = c("Diagnosis"),GroupBy = "Diagnosis")
+  Data1[var_name] = Data2[var_name]
+  
+  DataMeans = melt(Data1, measure.vars = c(var_name, weighted_name))
+  
+  return(list(DataMeans,summary(weight_ll),summary(ll)))
+}
+
+var = "RD"
+DataFrame = weighted_info_list[[2]]
+DataMeans_list = prepare_data_means(var_name = var,
+                               data_frame = DataFrame)
+DataMeans = DataMeans_list[[1]]
+DataMeans_list[[2]]
+DataMeans_list[[3]]
+ggplot(DataMeans,aes(x=Diagnosis,y= value, fill=variable))+
+  geom_bar(stat="identity",position = position_dodge(0.9),color="black")+
+  TypicalTheme+
+  scale_fill_manual(values = c("#C33E3B","#4EA3DF","#6cBE58","#1B4D3E","#003153"))+
+  geom_errorbar(aes(ymax = value+SEM,ymin = value-SEM),width = 0.5, position = position_dodge(0.9))+
+  ggtitle(paste0(var," and Wieghted-",var, " scores"),subtitle = "for Infomax Bootstrapping")
+
+Correlate(weighted_info_list[[5]], Var1 = "weight_HA","HA", Factor = "Diagnosis")
+```
+
+```{python, check questions that make up each of the ICs}
+colnames = {i:"Q"+str(i)+"_loading" for i in range(1,101)}
+colnames[0]="ID"
+for i in range(5):
+  data_info[i] = data_info[i].rename(columns = colnames)
+  data_fast[i] = data_fast[i].rename(columns = colnames)
+  data_noboot_fast[i] = data_noboot_fast[i].rename(columns = colnames)
+
+def find_questions(data_frame):
+  w_data = data_frame.iloc[:,1:101]
+  
+  # make sure to take the absolute value
+  w_data = abs(w_data.astype(float))
+  
+  # take the average of questions around subjects
+  w_data_avg = np.average(w_data,axis=0)
+  
+  # threshold of 0.25 is applied
+  questions_included = np.where(w_data_avg>0.25,1,0)
+  return(questions_included.tolist())
+
+questions_included = pd.DataFrame([find_questions(data_info[i]) for i in range(5)])
+
+plt.scatter(range(0,100),questions_included.iloc[0,:])
+plt.scatter(range(0,100),questions_included.iloc[1,:]*2)
+plt.scatter(range(0,100),questions_included.iloc[2,:]*3)
+plt.scatter(range(0,100),questions_included.iloc[3,:]*4)
+plt.scatter(range(0,100),questions_included.iloc[4,:]*5)
+plt.savefig("/home/asawalma/questions.png", dpi = 200)
+```
+
+```{r, warning=FALSE}
+# create a data frame of IC loadings
+data_info_average = list()
+data_info_average_abs = list()
+for (i in 1:length(data_info)){
+  data_info_average[[i]] = apply(data_info[[i]][,c(2:101)],2,mean)
+  data_info_average_abs[[i]] = apply(abs(data_info[[i]][,c(2:101)]),2,mean)
+}
+
+#change names to reflect the IC they came from
+names(data_info_average) = sapply(0:4, function(x) paste0("IC",x))
+names(data_info_average_abs) = sapply(0:4, function(x) paste0("IC",x))
+
+# make the list into data frame. There will be two columns the first is the IC, the second is the loading
+data_info_avg = melt(data.frame(data_info_average),variable.name = "IC", value.name = "Loading")
+data_info_avg_abs = melt(data.frame(data_info_average_abs),variable.name = "IC", value.name = "Loading")
+data_info_avg$Loading_abs = data_info_avg_abs$Loading
+
+# Add a column to represent questions
+data_info_avg$Question = rep(1:100,5)
+
+ggplot(data = data_info_avg,aes(x = Question, y = Loading, fill = IC))+
+  geom_point(shape = 21, color = "black",size = 4)+
+  TypicalTheme
+
+# find included questions, if they are above threshold, give a value of 1, otherwise give 0
+data_info_avg$Inclusion = ifelse(data_info_avg$Loading>0.25, 1, 0)
+data_info_avg$Inclusion_abs = ifelse(data_info_avg$Loading_abs>0.25, 1, 0)
+
+sum(apply(sapply(c("IC1","IC2","IC3"), function(x) data_info_avg$Inclusion_abs[data_info_avg$IC == x]),1,sum)==1)
+
+
+ggplot(data = data_info_avg,aes(x = Question, y = Loading_abs, fill = IC))+
+  geom_point(shape = 21, color = "black",size = 3)+
+  TypicalTheme
+
+
+sapply(c("IC0","IC1","IC2","IC3","IC4"), function(x) data_info_avg$Inclusion_abs[data_info_avg$IC == x])
+
+
 ```
 
 ```{r trials, warning=FALSE}
@@ -564,6 +700,7 @@ fastICA(scores[141:240], 2, alg.typ = "deflation", fun = "logcosh", alpha = 1,
              method = "R", row.norm = FALSE, maxit = 200,
              tol = 0.0001, verbose = TRUE)
 ```
+
 
 ```{python trials}
 
