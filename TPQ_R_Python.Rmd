@@ -260,7 +260,7 @@ cronbach(weighted_df)
 
 ```
 
-```{python Fast_ICA vs Infomax}
+```{python import all data (python) to check the difference between Fast_ICA vs Infomax}
 import numpy as np
 import pandas as pd
 import os
@@ -677,6 +677,86 @@ ggplot(data = data_info_avg,aes(x = Question, y = Loading_abs, fill = IC))+
 
 sapply(c("IC0","IC1","IC2","IC3","IC4"), function(x) data_info_avg$Inclusion_abs[data_info_avg$IC == x])
 
+
+
+
+```
+
+```{r check how much each subject have loadings similar to Cloninger Loadings, warning=FALSE}
+TPQQuestions_list = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+
+
+# convert this list to lists of 100 questions, with ones in place of question numbers
+TPQQuestions_list = sapply(TPQQuestions_list, function(x) ifelse(1:100 %in% x,1,0))
+
+IC_num = 3
+Threshold = 0.25
+data_frame = data_fast
+# Choose data frame (without the column "arrangement")
+IC_threshold = data.frame(data_frame[[IC_num]][,-c(102)])
+IC_threshold[,c(2:101)] = abs(IC_threshold[,2:101]) > Threshold
+colnames(IC_threshold) = c("ID",1:100, "Diagnosis")
+IC_threshold$ID = 1:1819
+
+# change True/False to 1/0
+IC_threshold[,c(2:101)] = apply(IC_threshold[,c(2:101)],2,ifelse,1,0)
+
+IC_threshold_melt = melt(IC_threshold, value.name = "Threshold", variable.name =  c("Question"), id.vars = c("ID","Diagnosis"))
+
+ggplot(IC_threshold_melt, aes(x = ID, y = Question)) + 
+  geom_raster(aes(fill=Threshold)) + 
+  scale_fill_gradient(low="white", high="#D40000") +
+  ggtitle(paste0("Questions That Pass the Threshold of ",Threshold," in IC ", IC_num)) +
+  TypicalTheme + 
+  theme(axis.text.x = element_text(angle = 90))
+
+
+# Add Cloninger loadings
+TPQQuestions = data.frame(t(TPQQuestions_list))
+colnames (TPQQuestions) = c(1:100)
+TPQQuestions$ID = rownames(TPQQuestions)
+TPQQuestions$Diagnosis = "Cloninger"
+
+# reorder columns to match that of IC_threshold
+TPQQuestions = TPQQuestions[c(101,1:100,102)]
+
+# create a new data frame that has the resemblance values for each subject
+Cloninger_perc = rbind(IC_threshold,TPQQuestions)
+
+#create a function to determine the loading similarity for all TPQgroups
+
+
+
+for (c_item in 1:length(colnames(TPQQuestions_list))){
+  percentage = apply(abs(Cloninger_perc[,c(2:101)] - TPQQuestions_list[,c_item]),1,sum,na.rm = TRUE)
+  Cloninger_perc[,colnames(TPQQuestions_list)[c_item]] = percentage
+}
+
+Cloninger_perc_melt = melt(Cloninger_perc[,c(1,102:117)], value.name = "Threshold", variable.name =  c("Dimension"), id.vars = c("ID","Diagnosis"))
+Cloninger_perc_melt$ID = as.numeric(Cloninger_perc_melt$ID)
+
+ggplot(Cloninger_perc_melt, aes(x = ID, y = Dimension)) + 
+  geom_raster(aes(fill=Threshold)) + 
+  scale_fill_gradient2(low="white", high="blue", midpoint = 40) +
+  ggtitle(paste0("Questions That Pass the Threshold of ",Threshold," in IC ", IC_num)) +
+  TypicalTheme + 
+  theme(axis.text.x = element_text(angle = 90))
+
+ #sapply(c("IC0","IC1","IC2","IC3","IC4"), function(x) IC_threshold$Threshold[IC_threshold$IC == x])
 
 ```
 
