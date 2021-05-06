@@ -260,7 +260,7 @@ cronbach(weighted_df)
 
 ```
 
-```{python import all data (python) to check the difference between Fast_ICA vs Infomax}
+```{python import all data to check the difference between Fast_ICA vs Infomax}
 import numpy as np
 import pandas as pd
 import os
@@ -388,6 +388,21 @@ weighted_fast_list = lapply(1:length(data_fast),function(x) create_weights(data_
 weighted_noboot_fast_list = lapply(1:length(data_noboot_fast),function(x) create_weights(data_noboot_fast[[x]]))
 weighted_info_list = lapply(1:length(data_info),function(x) create_weights(data_info[[x]]))
 
+
+bind_data_frames <- function(weighted_list, loading_list){
+  final_list = list()
+  for (i in 1:length(weighted_list)){
+    df_weighted = weighted_list[[i]]
+    df_loading = loading_list[[i]][,!colnames(loading_list[[i]]) %in% c("arrangement","ID","Diagnosis")]
+    final_df = bind_cols(df_weighted, df_loading)
+    final_list[[i]] = final_df
+  }
+  return(final_list)
+}
+
+df_fast_list = bind_data_frames(weighted_fast_list, data_fast)
+df_noboot_list = bind_data_frames(weighted_noboot_fast_list, data_noboot_fast)
+df_info_list = bind_data_frames(weighted_info_list, data_info)
 ```
 
 ```{r check percentage of explained variance, warning=FALSE}
@@ -760,6 +775,34 @@ ggplot(Cloninger_perc_melt, aes(x = ID, y = Dimension)) +
 
 ```
 
+```{r 3d Matrix for all loadings, for 5 subject groups, warning=FALSE}
+
+data_frame = df_fast_list[[1]]
+
+weighted_list = sapply(1:100, function(x) paste0("QO",x))
+loading_list = sapply(1:100, function(x) paste0("Q",x,"_load"))
+
+# force the levels of "ID" to follow the diagnosis (make sure they are not divided into two sessions)
+# First, find the IDs that represent each of the Diagnoses
+ID_list = sapply(1:5, function(x) data_frame$ID[data_frame$Diagnosis == levels(factor(data_frame$Diagnosis))[x]])
+
+#extract the length of each item so that it can be plotted as a horizontal line to separate each group
+Diagnoses_positions = sapply(1:5, function (x) sum(sapply(ID_list[1:x], function(y) length(y))))
+
+#Change the ID into a factor, make sure the factor levels separate the data into 5 Diagnosis groups
+data_frame$ID = factor(data_frame$ID, levels = unlist(ID_list))
+data_frame = melt(data_frame, id.vars = c("ID","Diagnosis"), value.name = "Loading", variable.name = "Question")
+ggplot(data_frame, aes(x= Question, y = ID))+
+  geom_raster(aes(fill=Loading)) + 
+  scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0) +
+  ggtitle(label = "Final Loadings for All Subjects", subtitle = "For the 5 Groups of Subjects")+
+  TypicalTheme +
+  geom_hline(yintercept=Diagnoses_positions, size=0.5)
+
+
+# separate the data into mostly positive, mostly zero and mostly negative loadings
+data_frame$Loading[data_frame$Diagnosis == "HC"]
+```
 ```{r trials, warning=FALSE}
 #if(require(MASS)){
 library(MASS)
