@@ -324,6 +324,38 @@ Attach.H <- function(DataFrame1,DataFrame2,SubjectID1="Subject",SubjectID2="Subj
   ResultingDataFrame=cbind(ResultingDataFrame,CombiningDF)
   return(ResultingDataFrame)
 }
+
+bind_data_frames <- function(...) {
+  # bind the columns two data frames, making sure to remove common columns
+  #similar to Attach.H, but more elegant
+  
+  # length of the passed arguments in "..."
+  ar_len = length(match.call())-1
+  
+  #create a list of all data frames included
+  if (ar_len == 1){
+    all_data_list = c(...)
+  } else{
+    all_data_list = list(...)
+  }
+  
+  #determine the colnames that are found in all data frames
+  allcolnames = lapply(all_data_list, colnames)
+  common_colnames = Reduce(intersect, allcolnames)
+  
+  # you need to be sure that all data frames contain the exact same common columns
+  common_columns = all_data_list[[1]][common_colnames]
+  
+  #remove these columns from all data frames
+  all_data_list = lapply(1:length(all_data_list), function(x)
+    all_data_list[[x]][!colnames(all_data_list[[x]]) %in% common_colnames])
+  
+  # bind all data frames (together with the common columns)
+  final_df = Reduce(bind_cols,list(common_columns,all_data_list))
+  
+  return(final_df)
+}
+
 Distribute = function(data,distributed.var,within.var,within.val1,within.val2,common.var="Subject"){
   #distributed is the variable you want to distribute (Genotype or Response for example)
   #The within.var is the variable you want to distribute within (Session for example)
@@ -505,27 +537,27 @@ Correlate <- function(Data,Var1,Var2,name1=NA_character_,name2=NA_character_,Met
     }
   }
 }
-Multimelt<-function(dataframe,...,Names=NULL, new.factor="Factor", common.var="Subject"){
-  Variables=c(list(...))
-  MeltedData=data.frame()
-  DeletedVariables=NA_character_
-  i=0
-  for (item in Variables){
-    i=i+1
-    if (length(Names)<i){Names[i]=paste("var",i,sep = "")}
-    if (item[1] == Variables[[1]][1]){
-      FinalData=melt(data=dataframe, measure.vars = item, value.name = Names[i])
-    }else{
-      FinalData=Attach.H(FinalData,melt(data=dataframe, measure.vars = item, value.name = Names[i]),common.var,common.var)
-    }
-    DeletedVariables=c(DeletedVariables,item)
-  }
+
+Multimelt<-function(data_frame,...,Names=NULL, new.factor="Factor"){
+  # melt data frame, creating multiple value variables (not just one)
   
-  FinalData=FinalData[,!(colnames(FinalData) %in% DeletedVariables)]
-  FinalData[[new.factor]]=FinalData$variable
-  FinalData$variable=NULL
+  value_variables=c(list(...))
+  
+  #determine the colnames that are found in all data frames
+  common_colnames = apply(sapply(1:length(value_variables), function(x)
+    ! colnames(data_frame) %in% value_variables[[x]]), 1, prod) == 1
+  idvars = colnames(data_frame)[common_colnames]
+  
+  # create a list of melted data frames, each of them contains one value 
+  # variable alongside the id_vars
+  melted_dfs = lapply(1:length(Names), function(x)
+    melt(data_frame, measure.vars = value_variables[[x]], id.vars = idvars, value.name = Names[x], variable.name = new.factor))
+  
+  FinalData = bind_data_frames(melted_dfs)
+  
   return(FinalData)
 }
+
 
 LogisticInfo <- function(Model,PrintList=FALSE, PrintAny=TRUE){
   

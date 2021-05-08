@@ -9,8 +9,8 @@ output:
 options(device = "X11")
 
 library(reticulate)
-if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/python")){
-  use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python")
+if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/")){
+  use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python3")
 }else{
   use_python ("/home/asawalma/anaconda3/envs/mne/bin/python")
 }
@@ -297,7 +297,7 @@ data_noboot_fast[0]
 ````
 
 
-```{r load all data for further analysis , warning=FALSE}
+```{r load all data for further analysis , warning=FALSE, cache=TRUE}
 library (ppcor)
 library(readxl)
 library(reshape2)
@@ -305,15 +305,30 @@ library(ggplot2)
 library(dplyr)
 
 
+
 # determine coltypes before reading data
-colTypes = c(rep("text",11),rep("numeric",17),rep("text",1),rep("numeric",1),rep("text",6),rep("numeric",104),rep("text",100))
+colTypes = c(
+  rep("text", 11),
+  rep("numeric", 17),
+  rep("text", 1),
+  rep("numeric", 1),
+  rep("text", 6),
+  rep("numeric", 104),
+  rep("text", 100)
+)
 
 
 #read the data
-score_path = "/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx"
-if (!dir.exists(score_path)){
-  score_path = gsub("/abdulrahman/abdulrahman.sawalma@gmail.com","/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive", score_path)
+score_parent = "/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/"
+score_path = paste0(score_parent, "TPQ_Analysis_All_25.11.2020.xlsx")
+if (!dir.exists(score_parent)) {
+  score_path = gsub(
+    "/abdulrahman/abdulrahman.sawalma@gmail.com",
+    "/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive",
+    score_path
+  )
 }
+
 scores = read_excel(score_path, col_types = colTypes)
 
 
@@ -322,87 +337,125 @@ scores = as.data.frame(scores)
 
 
 # convert T to 1 and F to -1, also convert "NA" to NA
-for (i in 1:100){
-  scores[scores[,paste0("QO",i)] =="NA",paste0("QO",i)] = NA
-  scores[!is.na(scores[paste0("QO",i)]),paste0("QO",i)] = ifelse(scores[!is.na(scores[paste0("QO",i)]),paste0("QO",i)]=="T","1","-1")
-  scores[,paste0("QO",i)] = as.numeric(scores[,paste0("QO",i)])
+for (i in 1:100) {
+  scores[scores[, paste0("QO", i)] == "NA", paste0("QO", i)] = NA
+  scores[!is.na(scores[paste0("QO", i)]), paste0("QO", i)] = ifelse(scores[!is.na(scores[paste0("QO", i)]), paste0("QO", i)] ==
+                                                                      "T", "1", "-1")
+  scores[, paste0("QO", i)] = as.numeric(scores[, paste0("QO", i)])
 }
+
 
 
 # Make sure that 'scores' and 'loadings' data frames have the same arrangements
 loadings_IDs = data.frame(py$data_fast[1])$X0
-scores$arrangement = sapply(scores$`Final ID`, function(x) match(x,loadings_IDs))
-scores = arrange(scores,arrangement)
-scores = scores[!is.na(scores$arrangement),]
+scores$arrangement = sapply(scores$`Final ID`, function(x)
+  match(x, loadings_IDs))
+scores = arrange(scores, arrangement)
+scores = scores[!is.na(scores$arrangement), ]
 
 
 
-prepare_data <- function(data_frame){
+
+prepare_data <- function(data_frame) {
   # formats the data to have these columns ID, Diagnosis, 100 loadings
   # also, makes sure that the arrangement in these data frames is the same as the data frame "scores"
   
   # column names variable
-  question_names = sapply(1:100, function(x) paste0("Q",x,"_load"))
-  ColNames = append("ID",question_names)
+  question_names = sapply(1:100, function(x)
+    paste0("Q", x, "_load"))
+  ColNames = append("ID", question_names)
   
   # import python data as data frames
   colnames(data_frame) = ColNames
-
+  
   # prepare diagnosis column
-  Diagnosis = scores$Diagnosis[!is.na(sapply(scores$`Final ID`, function(x) match(x,data_frame$ID)))]
+  Diagnosis = scores$Diagnosis[!is.na(sapply(scores$`Final ID`, function(x)
+    match(x, data_frame$ID)))]
   
   # convert data to numeric
-  data_frame[-1]=apply(data_frame[-1], 2, as.numeric)
-
-  data_frame$arrangement = sapply(data_frame$ID, function(x) match(x,scores$`Final ID`))
-  data_frame = arrange(data_frame,arrangement)
-  data_frame = data_frame[!is.na(data_frame$arrangement),]
+  data_frame[-1] = apply(data_frame[-1], 2, as.numeric)
+  
+  data_frame$arrangement = sapply(data_frame$ID, function(x)
+    match(x, scores$`Final ID`))
+  data_frame = arrange(data_frame, arrangement)
+  data_frame = data_frame[!is.na(data_frame$arrangement), ]
   data_frame$Diagnosis = Diagnosis
   
   return (data_frame)
 }
 
-create_weights <- function(data_frame){
+
+create_weights <- function(data_frame) {
   # a function to calculate the weights for all questions
   # returns a data frame of weighted values
   # start with a data frame by copying "scores", then apply everything on it
   weighted_df = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
   
   # calculate the loadings
-  for (k in 1:100){
-    weighted_df[paste0("QO",k)] = scores[paste0("QO",k)] * data_frame[paste0("Q",k,"_load")]
+  for (k in 1:100) {
+    weighted_df[paste0("QO", k)] = scores[paste0("QO", k)] * data_frame[paste0("Q", k, "_load")]
   }
-  weighted_df[c("ID","Diagnosis")] = data_frame[c("ID","Diagnosis")]
+  weighted_df[c("ID", "Diagnosis")] = data_frame[c("ID", "Diagnosis")]
   
   return(weighted_df)
 }
 
+
 # make 3 lists for python data, prepare these data then add them to the lists
-data_info = lapply(1:length(py$data_info), function(x) prepare_data(data.frame(py$data_info[x])))
-data_fast = lapply(1:length(py$data_fast), function(x) prepare_data(data.frame(py$data_fast[x])))
-data_noboot_fast = lapply(1:length(py$data_noboot_fast), function(x) prepare_data(data.frame(py$data_noboot_fast[x])))
+data_info = lapply(1:length(py$data_info), function(x)
+  prepare_data(data.frame(py$data_info[x])))
+data_fast = lapply(1:length(py$data_fast), function(x)
+  prepare_data(data.frame(py$data_fast[x])))
+data_noboot_fast = lapply(1:length(py$data_noboot_fast), function(x)
+  prepare_data(data.frame(py$data_noboot_fast[x])))
 
 
 # calculate the weights of all data frames
-weighted_fast_list = lapply(1:length(data_fast),function(x) create_weights(data_fast[[x]]))
-weighted_noboot_fast_list = lapply(1:length(data_noboot_fast),function(x) create_weights(data_noboot_fast[[x]]))
-weighted_info_list = lapply(1:length(data_info),function(x) create_weights(data_info[[x]]))
+weighted_fast_list = lapply(1:length(data_fast), function(x)
+  create_weights(data_fast[[x]]))
+weighted_noboot_fast_list = lapply(1:length(data_noboot_fast), function(x)
+  create_weights(data_noboot_fast[[x]]))
+weighted_info_list = lapply(1:length(data_info), function(x)
+  create_weights(data_info[[x]]))
 
 
-bind_data_frames <- function(weighted_list, loading_list){
-  final_list = list()
-  for (i in 1:length(weighted_list)){
-    df_weighted = weighted_list[[i]]
-    df_loading = loading_list[[i]][,!colnames(loading_list[[i]]) %in% c("arrangement","ID","Diagnosis")]
-    final_df = bind_cols(df_weighted, df_loading)
-    final_list[[i]] = final_df
-  }
-  return(final_list)
+bind_data_frames <- function(...) {
+  # bind the columns two data frames, making sure to remove common columns
+  # length of the passed arguments in "..."
+  ar_len = length(match.call())-1
+  
+  #create a list of all data frames included
+  if (ar_len == 1){
+    all_data_list = c(...)
+  } else{
+    all_data_list = list(...)
+    }
+  
+  #determine the colnames that are found in all data frames
+  allcolnames = lapply(all_data_list, colnames)
+  common_colnames = Reduce(intersect, allcolnames)
+  
+  # you need to be sure that all data frames contain the exact same common columns
+  common_columns = all_data_list[[1]][common_colnames]
+  
+  #remove these columns from all data frames
+  all_data_list = lapply(1:length(all_data_list), function(x)
+    all_data_list[[x]][!colnames(all_data_list[[x]]) %in% common_colnames])
+  
+  # bind all data frames (together with the common columns)
+  final_df = Reduce(bind_cols,list(common_columns,all_data_list))
+
+  return(final_df)
 }
 
-df_fast_list = bind_data_frames(weighted_fast_list, data_fast)
-df_noboot_list = bind_data_frames(weighted_noboot_fast_list, data_noboot_fast)
-df_info_list = bind_data_frames(weighted_info_list, data_info)
+
+df_fast_list = lapply(1:length(weighted_fast_list), function(x)
+  bind_data_frames(weighted_fast_list[[x]], data_fast[[x]]))
+df_noboot_fast_list = lapply(1:length(weighted_noboot_fast_list), function(x)
+  bind_data_frames(weighted_noboot_fast_list[[x]], data_noboot_fast[[x]]))
+df_info_list = lapply(1:length(weighted_info_list), function(x)
+  bind_data_frames(weighted_info_list[[x]], data_info[[x]]))
+
 ```
 
 ```{r check percentage of explained variance, warning=FALSE}
@@ -771,29 +824,43 @@ ggplot(Cloninger_perc_melt, aes(x = ID, y = Dimension)) +
   TypicalTheme + 
   theme(axis.text.x = element_text(angle = 90))
 
- #sapply(c("IC0","IC1","IC2","IC3","IC4"), function(x) IC_threshold$Threshold[IC_threshold$IC == x])
+sapply(c("IC0","IC1","IC2","IC3","IC4"), function(x) IC_threshold$Threshold[IC_threshold$IC == x])
 
 ```
 
-```{r 3d Matrix for all loadings, for 5 subject groups, warning=FALSE}
+```{r 3d Matrix for all loadings, for 5 subject groups, warning=FALSE, cache=TRUE}
 
-data_frame = df_fast_list[[1]]
+weighted_col_list = sapply(1:100, function(x) paste0("QO",x))
+loading_col_list = sapply(1:100, function(x) paste0("Q",x,"_load"))
 
-weighted_list = sapply(1:100, function(x) paste0("QO",x))
-loading_list = sapply(1:100, function(x) paste0("Q",x,"_load"))
+# choose data frame
+question_df = df_fast_list[[1]]
 
 # force the levels of "ID" to follow the diagnosis (make sure they are not divided into two sessions)
 # First, find the IDs that represent each of the Diagnoses
-ID_list = sapply(1:5, function(x) data_frame$ID[data_frame$Diagnosis == levels(factor(data_frame$Diagnosis))[x]])
+ID_list = sapply(1:5, function(x)
+  question_df$ID[question_df$Diagnosis == levels(factor(question_df$Diagnosis))[x]])
 
 #extract the length of each item so that it can be plotted as a horizontal line to separate each group
-Diagnoses_positions = sapply(1:5, function (x) sum(sapply(ID_list[1:x], function(y) length(y))))
+Diagnoses_positions = sapply(1:5, function (x)
+  sum(sapply(ID_list[1:x], function(y)
+    length(y))))
 
 #Change the ID into a factor, make sure the factor levels separate the data into 5 Diagnosis groups
-data_frame$ID = factor(data_frame$ID, levels = unlist(ID_list))
-data_frame = melt(data_frame, id.vars = c("ID","Diagnosis"), value.name = "Loading", variable.name = "Question")
-ggplot(data_frame, aes(x= Question, y = ID))+
-  geom_raster(aes(fill=Loading)) + 
+question_df$ID = factor(question_df$ID, levels = unlist(ID_list))
+question_df = Multimelt(question_df, weighted_col_list, loading_col_list, Names = c("score","loading"), new.factor = "Question")
+
+
+ggplot(question_df, aes(x= Question, y = ID))+
+  geom_raster(aes(fill=loading)) + 
+  scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0) +
+  ggtitle(label = "Final Loadings for All Subjects", subtitle = "For the 5 Groups of Subjects")+
+  TypicalTheme +
+  geom_hline(yintercept=Diagnoses_positions, size=0.5)
+
+
+ggplot(question_df, aes(x= Question, y = ID))+
+  geom_raster(aes(fill=score)) + 
   scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0) +
   ggtitle(label = "Final Loadings for All Subjects", subtitle = "For the 5 Groups of Subjects")+
   TypicalTheme +
@@ -801,8 +868,10 @@ ggplot(data_frame, aes(x= Question, y = ID))+
 
 
 # separate the data into mostly positive, mostly zero and mostly negative loadings
-data_frame$Loading[data_frame$Diagnosis == "HC"]
+question_df$Loading[question_df$Diagnosis == "HC"]
+
 ```
+
 ```{r trials, warning=FALSE}
 #if(require(MASS)){
 library(MASS)
