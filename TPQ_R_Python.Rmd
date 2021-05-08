@@ -202,8 +202,6 @@ data_boot = [item for item in npz_boot['data_reco']]
 data_n_boot = [item for item in npz_n_boot['data_reco']]
 ```
 
-
-
 ```{r check the difference in FastICA between bootstrapping and no bootstrapping, warning=FALSE}
 colTypes = c(rep("text",11),rep("numeric",17),rep("text",1),rep("numeric",1),rep("text",6),rep("numeric",104),rep("text",100))
 scores = read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020.xlsx", col_types = colTypes)
@@ -295,7 +293,6 @@ data_fast = [pd.DataFrame(np.append(npz_ids,item, axis = 1)) for item in npz_fas
 data_noboot_fast = [pd.DataFrame(np.append(npz_ids,item, axis = 1)) for item in npz_noboot_fast['data_reco']]
 data_noboot_fast[0]
 ````
-
 
 ```{r load all data for further analysis , warning=FALSE, cache=TRUE}
 library (ppcor)
@@ -830,46 +827,110 @@ sapply(c("IC0","IC1","IC2","IC3","IC4"), function(x) IC_threshold$Threshold[IC_t
 
 ```{r 3d Matrix for all loadings, for 5 subject groups, warning=FALSE, cache=TRUE}
 
+# define column names to be included for the loadings and those for the weighted final scores
 weighted_col_list = sapply(1:100, function(x) paste0("QO",x))
 loading_col_list = sapply(1:100, function(x) paste0("Q",x,"_load"))
 
-# choose data frame
-question_df = df_fast_list[[1]]
+# define a function to plot loadings
+plot_questions <- function(question_df, plotting = "loadings") {
+  # plotting can be set to "loadings", "scores" or "both"
+  
+  # force the levels of "ID" to follow the diagnosis (make sure they are not divided into two sessions)
+  # First, find the IDs that represent each of the Diagnoses
+  ID_list = sapply(1:5, function(x)
+    question_df$ID[question_df$Diagnosis == levels(factor(question_df$Diagnosis))[x]])
+  
+  #extract the length of each item so that it can be plotted as a horizontal line to separate each group
+  Diagnoses_positions = sapply(1:5, function (x)
+    sum(sapply(ID_list[1:x], function(y)
+      length(y))))
+  
+  #Change the ID into a factor, make sure the factor levels separate the data into 5 Diagnosis groups
+  question_df$ID = factor(question_df$ID, levels = unlist(ID_list))
+  question_df = Multimelt(
+    question_df,
+    weighted_col_list,
+    loading_col_list,
+    Names = c("score", "loading"),
+    new.factor = "Question"
+  )
+  
+  # check each question for the following condition:
+  # dt = double_threshold: if the count of the above-threshold loadings is more than 80% for that question,
+  # then this question is included
+  included_loadings_dt = sapply(1:100, function(x)
+    sum(question_df$loading[question_df$Question == weighted_col_list[x]] > 0.25, na.rm = TRUE) > (0.8 * 1819))
+  included_scores_dt = sapply(1:100, function(x)
+    sum(question_df$score[question_df$Question == weighted_col_list[x]] > 0.25, na.rm = TRUE) > (0.8 * 1819)) 
 
-# force the levels of "ID" to follow the diagnosis (make sure they are not divided into two sessions)
-# First, find the IDs that represent each of the Diagnoses
-ID_list = sapply(1:5, function(x)
-  question_df$ID[question_df$Diagnosis == levels(factor(question_df$Diagnosis))[x]])
+  # av = average: if the average loading is >0.25, this question is included
+  averages_loadings = sapply(1:100, function(x)
+                    mean(question_df$loading[question_df$Question == weighted_col_list[x]],na.rm = TRUE))
+  included_loadings_av = averages_loadings>0.25
+  averages_scores = sapply(1:100, function(x)
+                    mean(question_df$score[question_df$Question == weighted_col_list[x]],na.rm = TRUE))
+  included_scores_av = averages_scores>0.25
+  
+  #plot loadings
+  load_plot = ggplot(question_df, aes(x= Question, y = ID))+
+    geom_raster(aes(fill=loading)) + 
+    scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0, limits = c(-1,1)) +
+    ggtitle(label = "Final Loadings for All Subjects", subtitle = "For the 5 Groups of Subjects")+
+    geom_hline(yintercept=Diagnoses_positions, size=0.5)+
+    annotate(geom="text", x=-3.5, y=c(Diagnoses_positions-15, -15, 1845, 1885),
+             label=c("GAD","HC","MDD","PTSD","TNP", "Ex. Questions","DT. Questions","AVG. Questions"), size = 4)+
+    coord_cartesian(ylim =c(-30,1900), xlim = c(-7,100))+
+    geom_point(data = data.frame(Inc_q = included_loadings_dt*1860-20),mapping = aes(x=1:100, y = Inc_q), 
+               size = 2, color = "#1B4D3E", inherit.aes = FALSE)+
+    geom_point(data = data.frame(Inc_q = included_loadings_av*1900-20),mapping = aes(x=1:100, y = Inc_q), 
+           size = 2, color = "#6cBE58", inherit.aes = FALSE)+
+    TypicalTheme
+  
+  #plot scores
+  score_plot = ggplot(question_df, aes(x= Question, y = ID))+
+    geom_raster(aes(fill=score)) + 
+    scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0, limits = c(-1,1)) +
+    ggtitle(label = "Final Scores for All Subjects", subtitle = "For the 5 Groups of Subjects")+
+    geom_hline(yintercept=Diagnoses_positions, size=0.5)+
+    annotate(geom="text", x=-3.5, y=c(Diagnoses_positions-15, -15, 1845, 1885),
+             label=c("GAD","HC","MDD","PTSD","TNP", "Ex. Questions","DT. Questions","AVG. Questions"), size = 4)+
+    coord_cartesian(ylim =c(-30,1900), xlim = c(-7,100))+
+    geom_point(data = data.frame(Inc_q = included_scores_dt*1860-20),mapping = aes(x=1:100, y = Inc_q), 
+               size = 2, color = "#1B4D3E", inherit.aes = FALSE)+
+    geom_point(data = data.frame(Inc_q = included_scores_av*1900-20),mapping = aes(x=1:100, y = Inc_q), 
+           size = 2, color = "#6cBE58", inherit.aes = FALSE)+
+    TypicalTheme
+  
+  # return the both figures if mult_plot is set to TRUE. Otherwise, return loadings only
+  if (plotting == "loadings"){
+    return (load_plot)
+  }else if (plotting == "scores"){
+    return (score_plot)
+  }else if(plotting == "both"){
+    return(multiplot(load_plot,score_plot,cols = 2))
+  }else{
+    return("Please set a valid argument for plotting, it can be set to 'loadings', 'scores' or 'both'")
+  }
+}
 
-#extract the length of each item so that it can be plotted as a horizontal line to separate each group
-Diagnoses_positions = sapply(1:5, function (x)
-  sum(sapply(ID_list[1:x], function(y)
-    length(y))))
 
-#Change the ID into a factor, make sure the factor levels separate the data into 5 Diagnosis groups
-question_df$ID = factor(question_df$ID, levels = unlist(ID_list))
-question_df = Multimelt(question_df, weighted_col_list, loading_col_list, Names = c("score","loading"), new.factor = "Question")
+#save all figures for each of the IC data frames
+sapply(1: length(df_fast_list), function(x)
+  ggsave(paste0("/home/asawalma/git/TPQ/figures/Q_Threshold_FastICA_Boot_",x,".png"),
+    plot = plot_questions(df_fast_list[[x]], plotting = "loadings"), width = 570,
+    height = 340, units = "mm", limitsize = FALSE))
 
-
-ggplot(question_df, aes(x= Question, y = ID))+
-  geom_raster(aes(fill=loading)) + 
-  scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0) +
-  ggtitle(label = "Final Loadings for All Subjects", subtitle = "For the 5 Groups of Subjects")+
-  TypicalTheme +
-  geom_hline(yintercept=Diagnoses_positions, size=0.5)
+sapply(1: length(df_noboot_fast_list), function(x)
+  ggsave(paste0("/home/asawalma/git/TPQ/figures/Q_Threshold_FastICA_NoBoot_",x,".png"),
+    plot = plot_questions(df_noboot_fast_list[[x]], plotting = "loadings"), width = 570,
+    height = 340, units = "mm", limitsize = FALSE))
 
 
-ggplot(question_df, aes(x= Question, y = ID))+
-  geom_raster(aes(fill=score)) + 
-  scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0) +
-  ggtitle(label = "Final Loadings for All Subjects", subtitle = "For the 5 Groups of Subjects")+
-  TypicalTheme +
-  geom_hline(yintercept=Diagnoses_positions, size=0.5)
-
-
-# separate the data into mostly positive, mostly zero and mostly negative loadings
-question_df$Loading[question_df$Diagnosis == "HC"]
-
+#save all figures for each of the IC data frames
+sapply(1: length(df_info_list), function(x)
+  ggsave(paste0("/home/asawalma/git/TPQ/figures/Q_Threshold_Infomax_Boot_",x,".png"),
+    plot = plot_questions(df_info_list[[x]], plotting = "loadings"), width = 570,
+    height = 340, units = "mm", limitsize = FALSE))
 ```
 
 ```{r trials, warning=FALSE}

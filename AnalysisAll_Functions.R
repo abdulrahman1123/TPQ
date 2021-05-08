@@ -20,8 +20,10 @@ library(effsize)
 ##############################################################################################################
 
 windowsFonts(Times=windowsFont("Amiri"))
-CPalette=c("#00A550","#Eb4C42","#0087BD",NA,"#C33E3B","#4EA3DF","#6cBE58","#808CA3","#B9B0AB",NA,"#B768A2","#FFD800","#E25822",NA,"#FF3800","#1B4D3E","#003153",NA,"#008000","#CC0000","#08457E",NA,
-           "#682860","#FBEC5D","#FF6347",NA,NA,"#EFCC00","#A2A2D0","#FF0800","#D40000","#E62020",NA,"#E86100","#FF7F50",NA,"#FF355E","#FC5A8D","#E30B5D", NA, "#2F4F4F", "#CC6666", "#9999CC", "#66CC99")
+CPalette=c("#00A550","#Eb4C42","#0087BD",NA,"#C33E3B","#4EA3DF","#6cBE58","#808CA3","#B9B0AB",NA,"#B768A2","#FFD800","#E25822",
+           NA,"#FF3800","#1B4D3E","#003153",NA,"#008000","#CC0000","#08457E",NA,
+           "#682860","#FBEC5D","#FF6347",NA,NA,"#EFCC00","#A2A2D0","#FF0800","#D40000","#E62020",NA,
+           "#E86100","#FF7F50",NA,"#FF355E","#FC5A8D","#E30B5D", NA, "#2F4F4F", "#CC6666", "#9999CC", "#66CC99")
 FFF=as.factor(c(1:44))
 ggplot(mapping=aes(x=FFF,y=rep(5,44),group=FFF,fill=FFF))+geom_bar(stat="identity",position = position_dodge())+scale_fill_manual(values = CPalette)+TypicalTheme+
   theme(legend.position = "none")
