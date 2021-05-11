@@ -300,6 +300,7 @@ library(readxl)
 library(reshape2)
 library(ggplot2)
 library(dplyr)
+library(Hmisc)
 
 
 
@@ -859,17 +860,17 @@ plot_questions <- function(question_df, plotting = "loadings") {
   # dt = double_threshold: if the count of the above-threshold loadings is more than 80% for that question,
   # then this question is included
   included_loadings_dt = sapply(1:100, function(x)
-    sum(question_df$loading[question_df$Question == weighted_col_list[x]] > 0.25, na.rm = TRUE) > (0.8 * 1819))
+    sum(abs(question_df$loading[question_df$Question == weighted_col_list[x]]) > 0.25, na.rm = TRUE) > (0.8 * 1819))
   included_scores_dt = sapply(1:100, function(x)
-    sum(question_df$score[question_df$Question == weighted_col_list[x]] > 0.25, na.rm = TRUE) > (0.8 * 1819)) 
+    sum(abs(question_df$score[question_df$Question == weighted_col_list[x]]) > 0.25, na.rm = TRUE) > (0.8 * 1819)) 
 
   # av = average: if the average loading is >0.25, this question is included
   averages_loadings = sapply(1:100, function(x)
                     mean(question_df$loading[question_df$Question == weighted_col_list[x]],na.rm = TRUE))
-  included_loadings_av = averages_loadings>0.25
+  included_loadings_av = abs(averages_loadings)>0.25
   averages_scores = sapply(1:100, function(x)
                     mean(question_df$score[question_df$Question == weighted_col_list[x]],na.rm = TRUE))
-  included_scores_av = averages_scores>0.25
+  included_scores_av = abs(averages_scores)>0.25
   
   #plot loadings
   load_plot = ggplot(question_df, aes(x= Question, y = ID))+
@@ -913,24 +914,71 @@ plot_questions <- function(question_df, plotting = "loadings") {
   }
 }
 
+fig_dir = "/home/asawalma/git/TPQ/figures"
+if (!dir.exists(fig_dir)) {
+  fig_dir = "/home/abdulrahman/git/TPQ/figures"
+}
 
 #save all figures for each of the IC data frames
 sapply(1: length(df_fast_list), function(x)
-  ggsave(paste0("/home/asawalma/git/TPQ/figures/Q_Threshold_FastICA_Boot_",x,".png"),
+  ggsave(paste0(fig_dir,"/Q_Threshold_FastICA_Boot_",x,".png"),
     plot = plot_questions(df_fast_list[[x]], plotting = "loadings"), width = 570,
     height = 340, units = "mm", limitsize = FALSE))
 
 sapply(1: length(df_noboot_fast_list), function(x)
-  ggsave(paste0("/home/asawalma/git/TPQ/figures/Q_Threshold_FastICA_NoBoot_",x,".png"),
+  ggsave(paste0(fig_dir,"/Q_Threshold_FastICA_NoBoot_",x,".png"),
     plot = plot_questions(df_noboot_fast_list[[x]], plotting = "loadings"), width = 570,
     height = 340, units = "mm", limitsize = FALSE))
 
-
 #save all figures for each of the IC data frames
 sapply(1: length(df_info_list), function(x)
-  ggsave(paste0("/home/asawalma/git/TPQ/figures/Q_Threshold_Infomax_Boot_",x,".png"),
+  ggsave(paste0(fig_dir,"/Q_Threshold_Infomax_Boot_",x,".png"),
     plot = plot_questions(df_info_list[[x]], plotting = "loadings"), width = 570,
     height = 340, units = "mm", limitsize = FALSE))
+```
+
+```{r similarity matrix, warning=FALSE, cache = TRUE}
+# define column names to be included for the loadings and those for the weighted final scores
+weighted_col_list = sapply(1:100, function(x) paste0("QO",x))
+loading_col_list = sapply(1:100, function(x) paste0("Q",x,"_load"))
+
+cor_fun <- function(df, type = "loadings"){
+  if (type == "loadings"){
+    questions_inc = loading_col_list
+  } else if (type == "scores"){
+    questions_inc = weighted_col_list
+  }
+  cor_df = data.frame(cor(df[questions_inc],use="pairwise.complete.obs"))
+
+  cor_df$Q1 = sapply(1:100, function(x) paste0("Q",x))
+  
+  cor_df_melt = melt(cor_df, measure.vars = questions_inc, variable.name = "Q2", value.name = "Correlation")
+  cor_df_melt$Q2 = rep(sapply(1:100, function(x) paste0("Q",x)),each = 100)
+  
+  g_cor = ggplot(cor_df_melt, mapping = aes(x=Q1, y=Q2))+
+    geom_raster(aes(fill=Correlation)) + 
+    scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0, limits = c(-1,1))
+
+    return (g_cor)
+}
+  
+fig_dir = "/home/asawalma/git/TPQ/figures"
+if (!dir.exists(fig_dir)) {
+  fig_dir = "/home/abdulrahman/git/TPQ/figures"
+}
+
+sapply(1:length(df_fast_list), function(x)
+  ggsave(paste0(fig_dir,"/Cor_FastICA_Boot",x,".png"), plot = cor_fun(df_fast_list[[x]]),
+       width = 250, height = 250, units = "mm", limitsize = FALSE))
+
+sapply(1:length(df_noboot_fast_list), function(x)
+  ggsave(paste0(fig_dir,"/Cor_FastICA_NoBoot",x,".png"), plot = cor_fun(df_noboot_fast_list[[x]]),
+       width = 250, height = 250, units = "mm", limitsize = FALSE))
+
+sapply(1:length(df_info_list), function(x)
+  ggsave(paste0(fig_dir,"/Cor_Infomax",x,".png"), plot = cor_fun(df_info_list[[x]]),
+       width = 250, height = 250, units = "mm", limitsize = FALSE))
+
 ```
 
 ```{r trials, warning=FALSE}
