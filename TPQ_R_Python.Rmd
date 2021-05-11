@@ -301,7 +301,7 @@ library(reshape2)
 library(ggplot2)
 library(dplyr)
 library(Hmisc)
-
+library(corrplot)
 
 
 # determine coltypes before reading data
@@ -1003,6 +1003,56 @@ fastICA(scores[141:240], 2, alg.typ = "deflation", fun = "logcosh", alpha = 1,
 
 ```
 
+```{r trials, warning=FALSE}
+
+cor_2df = function(df1,df2){
+  p_matrix = matrix(nrow = 100, ncol = 100)
+  rownames(p_matrix) = paste0("QO",1:100)
+  colnames(p_matrix) = paste0("QO",1:100)
+  
+  r_matrix = matrix(nrow = 100, ncol = 100)
+  rownames(r_matrix) = paste0("QO",1:100)
+  colnames(r_matrix) = paste0("QO",1:100)
+  
+  for (item1 in weighted_col_list){
+    for (item2 in weighted_col_list){
+      est = cor.test(df1[[item1]],df2[[item2]])$estimate
+      pval = cor.test(df1[[item1]],df2[[item2]])$p.value
+      p_matrix[item1,item2] = pval
+      r_matrix[item1,item2] = est
+    }
+  }
+  
+  # change the questions back to become Q1, Q2, Q3 ... etc. instead of QO1, QO2, QO3... etc.
+  rownames(p_matrix) = sapply(rownames(p_matrix), function(x) gsub("QO","Q",x))
+  colnames(p_matrix) = sapply(colnames(p_matrix), function(x) gsub("QO","Q",x))
+  
+  rownames(r_matrix) = sapply(rownames(r_matrix), function(x) gsub("QO","Q",x))
+  colnames(r_matrix) = sapply(colnames(r_matrix), function(x) gsub("QO","Q",x))
+  
+  final_list = list (p = p_matrix, r = r_matrix)
+  
+  
+  # Insignificant correlation are crossed
+  c1 = corrplot(final_list$r, type="upper",p.mat = final_list$p, sig.level = 0.01, insig = "blank")
+  return (c1)
+}
+
+
+
+
+fig_dir = "/home/asawalma/git/TPQ/figures"
+if (!dir.exists(fig_dir)) {
+  fig_dir = "/home/abdulrahman/git/TPQ/figures"
+}
+  
+
+cor_2df(df_fast_list[[2]],df_fast_list[[3]])
+
+scores
+
+
+```
 
 ```{python trials}
 
