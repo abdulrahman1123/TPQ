@@ -118,7 +118,7 @@ data_tpq_disorders, data_reco_disorders, scores_disorders,projections_disorders,
 
 ```
 
-```{r  find c.alpha for MDD and HC (from within the IC_all)}
+```{r  measure the main effect of the factors included (Trauma, MDD, GAD, PTSD and Diagnosis)}
 library (ppcor)
 library(readxl)
 library(reshape2)
@@ -152,6 +152,13 @@ data_tpq_all$MDD = factor(data_tpq_all$MDD)
 
 # makes data frame separated by diagnosis, cols = questions included, rows = Diagnoses
 calc_factor <- function(fac_name){
+  q_data = data.frame(ifelse(sources_all > apply(abs(sources_all),2,quantile,threshold),1,NA))
+  q_data$IC = paste0("IC",1:nrow(q_data))
+  q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+  ic_included = slice(q_data[IC_num,1:100],rep(1:100, each = nrow(data_tpq_all)))
+  data_ic = data_tpq_all
+  data_ic[,paste0("Q",1:100)] = data_ic[,paste0("Q",1:100)]*ic_included
+  data_ic = data_ic[,!is.na(data_ic[1,])]
   data_frame = data.frame(sapply(levels(data_ic[[fac_name]]), function(x) apply(data_ic[data_ic[[fac_name]] == x,9:ncol(data_ic)],2,mean, na.rm = TRUE)))
   names = sapply(levels(data_ic[[fac_name]]), function(x) sum(data_ic[[fac_name]] == x, na.rm = TRUE))
   colnames(data_frame) = paste0(colnames(data_frame),"(",names,")")
@@ -199,8 +206,25 @@ plot_IC <- function(threshold, IC_num, Factor){
 }
 
 threshold = 0.75
-IC_num = 1
+IC_num = 2
 Factor = "PTSD"
 
 plot_IC(threshold, 5, Factor)
+
+
+# look at the projections
+# make the previous function accept differnt data frames
+```
+
+
+```{r  look at the projections}
+library(ggplot2)
+
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
+
+projections_all
 ```
