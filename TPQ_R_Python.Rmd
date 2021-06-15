@@ -294,7 +294,7 @@ data_noboot_fast = [pd.DataFrame(np.append(npz_ids,item, axis = 1)) for item in 
 data_noboot_fast[0]
 ````
 
-```{r load all data for further analysis , warning=FALSE, cache=TRUE}
+```{r load all data for further analysis (RE-DONE) , warning=FALSE, cache=TRUE}
 library (ppcor)
 library(readxl)
 library(reshape2)
@@ -387,15 +387,21 @@ create_weights <- function(data_frame) {
   # a function to calculate the weights for all questions
   # returns a data frame of weighted values
   # start with a data frame by copying "scores", then apply everything on it
-  weighted_df = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+  original_scores = scores[match("QO1", colnames(scores)):match("QO100", colnames(scores))]
+  loadings = data_frame[match("Q1_load", colnames(data_frame)):match("Q100_load", colnames(data_frame))]
+  colnames(loadings) =colnames(original_scores)
   
-  # calculate the loadings
-  for (k in 1:100) {
-    weighted_df[paste0("QO", k)] = scores[paste0("QO", k)] * data_frame[paste0("Q", k, "_load")]
-  }
+  weighted_df = original_scores * loadings
+  
   weighted_df[c("ID", "Diagnosis")] = data_frame[c("ID", "Diagnosis")]
+  original_scores[c("ID", "Diagnosis")] = data_frame[c("ID", "Diagnosis")]
+  loadings[c("ID", "Diagnosis")] = data_frame[c("ID", "Diagnosis")]
   
-  return(weighted_df)
+  final_df = rbind(original_scores,weighted_df,loadings)
+  final_df$Score_type = rep(c("original","weight","loading"),each = nrow(original_scores))
+  colnames(final_df) = c(sapply(1:100,function(x) paste0("Q",x)),"ID","Diagnosis","Score_type")
+  
+  return(final_df)
 }
 
 
@@ -408,6 +414,7 @@ data_noboot_fast = lapply(1:length(py$data_noboot_fast), function(x)
   prepare_data(data.frame(py$data_noboot_fast[x])))
 
 
+
 # calculate the weights of all data frames
 weighted_fast_list = lapply(1:length(data_fast), function(x)
   create_weights(data_fast[[x]]))
@@ -416,43 +423,24 @@ weighted_noboot_fast_list = lapply(1:length(data_noboot_fast), function(x)
 weighted_info_list = lapply(1:length(data_info), function(x)
   create_weights(data_info[[x]]))
 
-
-bind_data_frames <- function(...) {
-  # bind the columns two data frames, making sure to remove common columns
-  # length of the passed arguments in "..."
-  ar_len = length(match.call())-1
+create_array <- function(data_frame) {
+  # concatenate all data frames into one big dataframe
+  fast_df_all = Reduce(rbind,data_frame)
   
-  #create a list of all data frames included
-  if (ar_len == 1){
-    all_data_list = c(...)
-  } else{
-    all_data_list = list(...)
-    }
+  # add the column IC. This is the column based on which categorization will be done.
+  fast_df_all$IC = unlist(sapply(1:length(data_frame), function(ic_num) rep(paste0("IC", ic_num), nrow(data_frame[[1]])), simplify = FALSE))
   
-  #determine the colnames that are found in all data frames
-  allcolnames = lapply(all_data_list, colnames)
-  common_colnames = Reduce(intersect, allcolnames)
+  # create the final array. It should have the dimensions of nrow, ncols, num_of_ICs
+  ar = simplify2array(by(fast_df_all,fast_df_all$IC,as.matrix))
   
-  # you need to be sure that all data frames contain the exact same common columns
-  common_columns = all_data_list[[1]][common_colnames]
-  
-  #remove these columns from all data frames
-  all_data_list = lapply(1:length(all_data_list), function(x)
-    all_data_list[[x]][!colnames(all_data_list[[x]]) %in% common_colnames])
-  
-  # bind all data frames (together with the common columns)
-  final_df = Reduce(bind_cols,list(common_columns,all_data_list))
-
-  return(final_df)
+  # return the data frame
+  return (ar)
 }
 
+fast_array = create_array(weighted_fast_list)
+noboot_fast_array = create_array(weighted_noboot_fast_list)
+info_array = create_array(weighted_info_list)
 
-df_fast_list = lapply(1:length(weighted_fast_list), function(x)
-  bind_data_frames(weighted_fast_list[[x]], data_fast[[x]]))
-df_noboot_fast_list = lapply(1:length(weighted_noboot_fast_list), function(x)
-  bind_data_frames(weighted_noboot_fast_list[[x]], data_noboot_fast[[x]]))
-df_info_list = lapply(1:length(weighted_info_list), function(x)
-  bind_data_frames(weighted_info_list[[x]], data_info[[x]]))
 
 ```
 
