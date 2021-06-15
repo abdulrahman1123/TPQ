@@ -1,0 +1,211 @@
+---
+title: "TPQ_R_Python"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include = TRUE, cache=FALSE}
+options(device = "X11")
+
+library(reticulate)
+if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/")){
+  use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python3")
+}else{
+  #("/home/asawalma/anaconda3/envs/mne/bin/python3")
+  use_python("/home/asawalma/anaconda3/bin/python")
+}
+
+```
+
+```{python Load all data, include = TRUE}
+
+import numpy as np
+import pandas as pd
+import os
+
+# create the main dir, which is different in different PCs
+main_dir = "/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine"
+if not os.path.exists(main_dir):
+    main_dir = main_dir.replace("/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive","/home/abdulrahman/abdulrahman.sawalma@gmail.com")
+
+def match_value(Column,IDs):
+    # Search for matching IDs in the original data and return the matched information of the column "Column"
+    final_arranged = []
+    for item in IDs:
+        if item in original_data["Final ID"].tolist():
+            final_arranged.append(
+                np.array(original_data.loc[original_data["Final ID"] == item, original_data.columns == Column])[
+                    0, 0])
+        else:
+            final_arranged.append("NA")
+    return (final_arranged)
+
+
+original_data = pd.read_excel(main_dir + "/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx")
+
+
+# read tpq data, which includes general information about the ICA and the IDs
+
+def extract_data(tpq_npz_dir):
+    results_npz_dir = tpq_npz_dir.replace("icasso_ICA-tpq","icasso-results_ICA-tpq")
+    data_tpq = np.load(tpq_npz_dir, allow_pickle=True)
+    data_results = np.load(results_npz_dir, allow_pickle=True)
+    IDs = data_tpq["IDs"]
+    # match the values of the new columns (Diagnosis, Trauma ... etc.) with the IDs within the data
+    sub_info = np.array([[match_value(item,IDs)]*data_results["data_reco"].shape[0] for item in ['Diagnosis', 'Trauma', 'GAD', 'Response', 'PTSD','MDD', 'Session', 'Final ID']])
+    sub_info = sub_info.transpose(1,2,0)
+    # put the information in data frames after attaching the sub_info to the beginning
+    data_tpq = pd.DataFrame(data_tpq["data_tpq"])
+    data_tpq[["Diagnosis","Trauma", "GAD", "Response", "PTSD", "MDD", "Session","ID"]] = sub_info[0]
+    data_tpq.columns = ["Q"+str(i) for i in range(1,101)]+["Diagnosis","Trauma", "GAD", "Response", "PTSD", "MDD", "Session","ID"]
+    new_colnames = ["Diagnosis","Trauma", "GAD", "Response", "PTSD", "MDD", "Session","ID"] + ["Q"+str(i) for i in range(1,101)]
+    data_reco_array = np.append(sub_info,data_results["data_reco"],axis=2)
+    data_reco = [pd.DataFrame(data_reco_array[i], columns=new_colnames) for i in range(len(data_reco_array))]
+    sources = pd.DataFrame(data_results["sources"], columns = ["Q"+str(i) for i in range(1,101)])
+    scores = pd.DataFrame(data_results["scores"])
+    projection = pd.DataFrame(np.append(sub_info[0,:,:],data_results["projection"],axis=1))
+    projection.columns = ["Diagnosis","Trauma", "GAD", "Response", "PTSD", "MDD", "Session","ID"] + ["IC" + str(i) for i in range(1, len(projection.columns) - 7)]
+
+    return(data_tpq,data_reco, sources,scores,projection)
+
+tpq_npz_dir_GAD =main_dir + "/ICASSO_fixed/decomp_tpq/GAD/icasso_ICA-tpq_GAD_nsamp30_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+tpq_npz_dir_hc =main_dir + "/ICASSO_fixed/decomp_tpq/HC/icasso_ICA-tpq_HC_nsamp1202_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+tpq_npz_dir_all =main_dir + "/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD_infomax/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz"
+tpq_npz_dir_mdd =main_dir + "/ICASSO_fixed/decomp_tpq/MDD/icasso_ICA-tpq_MDD_nsamp455_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+tpq_npz_dir_disorders =main_dir + "/ICASSO_fixed/decomp_tpq/MDD,PTSD,TNP,GAD/icasso_ICA-tpq_MDD,PTSD,TNP,GAD_nsamp620_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+tpq_npz_dir_ptsd =main_dir + "/ICASSO_fixed/decomp_tpq/PTSD/icasso_ICA-tpq_PTSD_nsamp57_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+tpq_npz_dir_tnp =main_dir + "/ICASSO_fixed/decomp_tpq/TNP/icasso_ICA-tpq_TNP_nsamp78_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+
+data_tpq_GAD, data_reco_GAD, sources_GAD,scores_GAD,projections_GAD = extract_data(tpq_npz_dir = tpq_npz_dir_GAD)
+data_tpq_hc, data_reco_hc, sources_hc,scores_hc,projections_hc = extract_data(tpq_npz_dir = tpq_npz_dir_hc)
+data_tpq_all, data_reco_all, sources_all,scores_all,projections_all = extract_data(tpq_npz_dir = tpq_npz_dir_all)
+data_tpq_mdd, data_reco_mdd, sources_mdd,scores_mdd,projections_mdd = extract_data(tpq_npz_dir = tpq_npz_dir_mdd)
+data_tpq_disorders, data_reco_disorders, sources_disorders,scores_disorders,projections_disorders = extract_data(tpq_npz_dir = tpq_npz_dir_disorders)
+data_tpq_ptsd, data_reco_ptsd, sources_ptsd,scores_ptsd,projections_ptsd = extract_data(tpq_npz_dir = tpq_npz_dir_ptsd)
+data_tpq_tnp, data_reco_tnp, sources_tnp,scores_tnp,projections_tnp = extract_data(tpq_npz_dir = tpq_npz_dir_tnp)
+
+
+```
+
+```{r  find c.alpha for MDD and HC (from within the IC_all)}
+library (ppcor)
+library(readxl)
+library(reshape2)
+library(ggplot2)
+library(dplyr)
+library(Hmisc)
+library(corrplot)
+library(abind)
+
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
+
+data_tpq_all$Diagnosis[data_tpq_all$Diagnosis=="NA"] = NA
+data_tpq_all$Trauma[data_tpq_all$Trauma=="NA"] = NA
+data_tpq_all$GAD[data_tpq_all$GAD=="NA"] = NA
+data_tpq_all$Response[data_tpq_all$Response=="NA"] = NA
+data_tpq_all$PTSD[data_tpq_all$PTSD=="NA"] = NA
+data_tpq_all$MDD[data_tpq_all$MDD=="NA"] = NA
+
+data_tpq_all$Diagnosis = factor(data_tpq_all$Diagnosis)
+data_tpq_all$Trauma = factor(data_tpq_all$Trauma)
+data_tpq_all$GAD = factor(data_tpq_all$GAD)
+data_tpq_all$Response = factor(data_tpq_all$Response)
+data_tpq_all$PTSD = factor(data_tpq_all$PTSD)
+data_tpq_all$MDD = factor(data_tpq_all$MDD)
+
+
+
+# makes data frame separated by diagnosis, cols = questions included, rows = Diagnoses
+calc_factor <- function(fac_name){
+  data_frame = data.frame(sapply(levels(data_ic[[fac_name]]), function(x) apply(data_ic[data_ic[[fac_name]] == x,9:ncol(data_ic)],2,mean, na.rm = TRUE)))
+  names = sapply(levels(data_ic[[fac_name]]), function(x) sum(data_ic[[fac_name]] == x, na.rm = TRUE))
+  colnames(data_frame) = paste0(colnames(data_frame),"(",names,")")
+  data_frame$Question =rownames(data_frame)
+  return(data_frame)
+}
+
+
+# include only those who pass the thresold
+
+plot_IC <- function(threshold, IC_num, Factor){
+  q_data = data.frame(ifelse(sources_all > apply(abs(sources_all),2,quantile,threshold),1,NA))
+  q_data$IC = paste0("IC",1:nrow(q_data))
+  q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+  q_data_melted = melt(q_data,id.vars = "IC",variable.name = "Question", value.name = "Included")
+  
+  questions_ic_plot = ggplot(q_data_melted,aes(x=Question, y =Included))+
+    geom_bar(stat="identity",fill = "#CC6666")+
+    facet_wrap(~IC,ncol = 1)+
+    TypicalTheme
+  
+  
+  ic_included = slice(q_data[IC_num,1:100],rep(1:100, each = nrow(data_tpq_all)))
+  data_ic = data_tpq_all
+  data_ic[,paste0("Q",1:100)] = data_ic[,paste0("Q",1:100)]*ic_included
+  data_ic = data_ic[,!is.na(data_ic[1,])]
+  
+  df_factor = melt(calc_factor(Factor), id.vars = "Question", variable.name = "Group", value.name = "MeanScore")
+  
+  g1 = ggplot(df_factor, aes(x=Question, y = MeanScore, group = Group, color = Group))+
+    geom_line(size =1.5)+
+    TypicalTheme+
+    scale_color_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+    scale_x_discrete(name = Factor)
+  
+  data_means = SMeans(df_factor,"MeanScore","Group")
+  g2 = ggplot(data_means,aes(x= Group, y= MeanScore, fill = Group))+
+    geom_bar(stat="identity")+
+    TypicalTheme+
+    scale_fill_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+    geom_errorbar(aes(ymin = MeanScore-SEM,ymax = MeanScore+SEM), width = 0.15)+
+    scale_x_discrete(name = Factor)
+    
+  return(multiplot(g1,g2))
+}
+
+threshold = 0.75
+IC_num = 1
+Factor = "PTSD"
+
+q_data = data.frame(ifelse(sources_all > apply(abs(sources_all),2,quantile,threshold),1,NA))
+q_data$IC = paste0("IC",1:nrow(q_data))
+q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+q_data_melted = melt(q_data,id.vars = "IC",variable.name = "Question", value.name = "Included")
+
+questions_ic_plot = ggplot(q_data_melted,aes(x=Question, y =Included))+
+  geom_bar(stat="identity",fill = "#CC6666")+
+  facet_wrap(~IC,ncol = 1)+
+  TypicalTheme
+
+
+ic_included = slice(q_data[IC_num,1:100],rep(1:100, each = nrow(data_tpq_all)))
+data_ic = data_tpq_all
+data_ic[,paste0("Q",1:100)] = data_ic[,paste0("Q",1:100)]*ic_included
+data_ic = data_ic[,!is.na(data_ic[1,])]
+
+df_factor = melt(calc_factor(Factor), id.vars = "Question", variable.name = "Group", value.name = "MeanScore")
+
+g1 = ggplot(df_factor, aes(x=Question, y = MeanScore, group = Group, color = Group))+
+  geom_line(size =1.5)+
+  TypicalTheme+
+  scale_color_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  scale_x_discrete(name = Factor)
+
+data_means = SMeans(df_factor,"MeanScore","Group")
+g2 = ggplot(data_means,aes(x= Group, y= MeanScore, fill = Group))+
+  geom_bar(stat="identity")+
+  TypicalTheme+
+  scale_fill_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  geom_errorbar(aes(ymin = MeanScore-SEM,ymax = MeanScore+SEM), width = 0.15)+
+  scale_x_discrete(name = Factor)
+  
+
+
+
+plot_IC(threshold, 5, Factor)
+```
