@@ -134,6 +134,10 @@ scores_all = py$scores_all
 projections_all = py$projections_all
 sources_all = py$sources_all
 
+q_data = data.frame(ifelse(abs(sources_all) > apply(abs(sources_all),2,quantile,0.75),10,NA))
+q_data$IC = paste0("IC",1:nrow(q_data))
+q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+
 data_tpq_all$Diagnosis[data_tpq_all$Diagnosis=="NA"] = NA
 data_tpq_all$Trauma[data_tpq_all$Trauma=="NA"] = NA
 data_tpq_all$GAD[data_tpq_all$GAD=="NA"] = NA
@@ -152,6 +156,8 @@ data_tpq_all$MDD = factor(data_tpq_all$MDD)
 
 # makes data frame separated by diagnosis, cols = questions included, rows = Diagnoses
 calc_factor <- function(included_df,fac_name){
+  included_df[[fac_name]][included_df[[fac_name]]=="NA"]=NA
+  included_df[[fac_name]] = factor(included_df[[fac_name]])
   data_frame = data.frame(sapply(levels(included_df[[fac_name]]), function(x) apply(included_df[included_df[[fac_name]] == x,9:ncol(included_df)],2,mean, na.rm = TRUE)))
   names = sapply(levels(included_df[[fac_name]]), function(x) sum(included_df[[fac_name]] == x, na.rm = TRUE))
   colnames(data_frame) = paste0(colnames(data_frame),"(",names,")")
@@ -160,22 +166,13 @@ calc_factor <- function(included_df,fac_name){
 }
 
 
-# include only those who pass the thresold
+q_data = data.frame(ifelse(abs(sources_all) > apply(abs(sources_all),1,quantile,0.8),1,NA))
+q_data$IC = paste0("IC",1:nrow(q_data))
+q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
 
-plot_IC <- function(threshold, IC_num, Factor){
-  q_data = data.frame(ifelse(sources_all > apply(abs(sources_all),2,quantile,threshold),1,NA))
-  q_data$IC = paste0("IC",1:nrow(q_data))
-  q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
-  q_data_melted = melt(q_data,id.vars = "IC",variable.name = "Question", value.name = "Included")
-  
-  questions_ic_plot = ggplot(q_data_melted,aes(x=Question, y =Included))+
-    geom_bar(stat="identity",fill = "#CC6666")+
-    facet_wrap(~IC,ncol = 1)+
-    TypicalTheme
-  
-  
-  ic_included = slice(q_data[IC_num,1:100],rep(1:100, each = nrow(data_tpq_all)))
-  data_ic = data_tpq_all
+plot_original <- function(data_score_original, IC_num, Factor){
+  ic_included = slice(q_data[IC_num,1:100],rep(1:100, each = nrow(data_score_original)))
+  data_ic = data_score_original
   data_ic[,paste0("Q",1:100)] = data_ic[,paste0("Q",1:100)]*ic_included
   data_ic = data_ic[,!is.na(data_ic[1,])]
   
@@ -198,20 +195,62 @@ plot_IC <- function(threshold, IC_num, Factor){
   return(multiplot(g1,g2))
 }
 
-threshold = 0.75
-IC_num = 2
-Factor = "PTSD"
+sapply(1:15, function(x) plot_original(data_tpq_all, x, "Diagnosis"), simplify = FALSE)
+sapply(1:15, function(x) plot_original(data_tpq_all, x, "Trauma"), simplify = FALSE)
+sapply(1:15, function(x) plot_original(data_tpq_all, x, "GAD"), simplify = FALSE)
+sapply(1:15, function(x) plot_original(data_tpq_all, x, "Response"), simplify = FALSE)
+sapply(1:15, function(x) plot_original(data_tpq_all, x, "PTSD"), simplify = FALSE)
 
-plot_IC(threshold, 2, Factor)
 
+sapply(1:15, function(x) plot_original(data_tpq_all[data_tpq_all$Session=="Test",], x, "Response"), simplify = FALSE)
+sapply(1:15, function(x) plot_original(data_tpq_all[data_tpq_all$Session=="Retest",], x, "Response"), simplify = FALSE)
 
-# look at the projections
-# make the previous function accept differnt data frames
+```
+
+```{r plot projections}
+
+plot_proj <- function(Factor){  
+  data = projections_all
+  data[,9:ncol(data)] = apply(data[,9:ncol(data)],2,as.numeric)
+  
+  df_factor = melt(calc_factor(data,Factor), id.vars = "Question", variable.name = "Group", value.name = "MeanScore")
+  df_factor$IC = factor(df_factor$Question, levels = paste0("IC",1:15))
+  g1 = ggplot(df_factor, aes(x=IC, y = MeanScore, group = Group, color = Group))+
+    geom_line(size =1.5)+
+    TypicalTheme+
+    scale_color_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+    scale_x_discrete(name = Factor)
+  
+  data_means = SMeans(df_factor,"MeanScore","Group")
+  g2 = ggplot(data_means,aes(x= Group, y= MeanScore, fill = Group))+
+    geom_bar(stat="identity")+
+    TypicalTheme+
+    scale_fill_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+    geom_errorbar(aes(ymin = MeanScore-SEM,ymax = MeanScore+SEM), width = 0.15)+
+    scale_x_discrete(name = Factor)
+    
+  return(multiplot(g1,g2))
+}    
+
+sapply(c("Diagnosis","Response","Trauma","GAD","Session"), function(x) plot_proj(x), simplify = FALSE)
 ```
 
 
-```{r  look at the projections}
+```{r plot reconstructed data}
 library(ggplot2)
+library(reshape2)
+
+calc_factor <- function(included_df,fac_name){
+  included_df[[fac_name]][included_df[[fac_name]]=="NA"]=NA
+  included_df[[fac_name]] = factor(included_df[[fac_name]])
+  data_frame = data.frame(sapply(levels(included_df[[fac_name]]), function(x) apply(included_df[included_df[[fac_name]] == x,9:ncol(included_df)],2,mean, na.rm = TRUE)))
+  names = sapply(levels(included_df[[fac_name]]), function(x) sum(included_df[[fac_name]] == x, na.rm = TRUE))
+  colnames(data_frame) = paste0(colnames(data_frame),"(",names,")")
+  data_frame$Question =rownames(data_frame)
+  return(data_frame)
+}
+
+
 
 data_tpq_all = py$data_tpq_all
 data_reco_all = py$data_reco_all
@@ -219,5 +258,179 @@ scores_all = py$scores_all
 projections_all = py$projections_all
 sources_all = py$sources_all
 
-projections_all
+
+q_data = data.frame(ifelse(abs(sources_all) > apply(abs(sources_all),1,quantile,0.8),10,NA))
+q_data$IC = paste0("IC",1:nrow(q_data))
+q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+sources_melted = melt(sources_all[c(1:100)], value.name = "source_value", variable.name = "Question")
+
+q_data_melted = melt(q_data,id.vars = "IC",variable.name = "Question", value.name = "Included")
+q_data_melted$source_value = sources_melted$source_value
+
+
+plot_reco <- function(IC_num,Factor){
+  reco_data = data_reco_all[[IC_num]]
+  
+  # define columns included, which are the id columns and the included questions
+  ID_cols = colnames(reco_data)[1:8]
+  
+  IC_txt = paste0("IC",IC_num)
+  inc_questions = as.character(q_data_melted$Question[q_data_melted$IC == IC_txt&!is.na(q_data_melted$Included)])
+  
+  data = reco_data[,c(ID_cols,inc_questions)]
+  data[,9:ncol(data)] = apply(data[,9:ncol(data)],2,as.numeric)
+  
+  df_factor = melt(calc_factor(data,Factor), id.vars = "Question", variable.name = "Group", value.name = "MeanScore")
+    
+  g1 = ggplot(df_factor, aes(x=Question, y = MeanScore, group = Group, color = Group))+
+    geom_line(size =1.5)+
+    TypicalTheme+
+    scale_color_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+    scale_x_discrete(name = Factor)
+  
+  data_means = SMeans(df_factor,"MeanScore","Group")
+  g2 = ggplot(data_means,aes(x= Group, y= MeanScore, fill = Group))+
+    geom_bar(stat="identity")+
+    TypicalTheme+
+    scale_fill_manual(values =  c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+    geom_errorbar(aes(ymin = MeanScore-SEM,ymax = MeanScore+SEM), width = 0.15)+
+    scale_x_discrete(name = Factor)
+  
+  return(multiplot(g1,g2))
+
+}
+
+sapply(1:10, function(x) plot_reco(x, "Diagnosis"), simplify = FALSE)
+sapply(1:10, function(x) plot_reco(x, "PTSD"), simplify = FALSE)
+sapply(1:10, function(x) plot_reco(x, "Trauma"), simplify = FALSE)
+sapply(1:10, function(x) plot_reco(x, "Response"), simplify = FALSE)
+sapply(1:10, function(x) plot_reco(x, "GAD"), simplify = FALSE)
+
 ```
+
+
+```{r look at the how do ICs load on Cloningers }
+library(ggplot2)
+library(reshape2)
+
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
+
+
+q_data = data.frame(ifelse(abs(sources_all) > apply(abs(sources_all),1,quantile,0.8),10,NA))
+q_data$IC = paste0("IC",1:nrow(q_data))
+q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+sources_melted = melt(sources_all[c(1:100)], value.name = "source_value", variable.name = "Question")
+
+q_data_melted = melt(q_data,id.vars = "IC",variable.name = "Question", value.name = "Included")
+q_data_melted$source_value = sources_melted$source_value
+
+questions_ic_plot = ggplot(q_data_melted,aes(x=Question, group = IC))+
+  geom_bar(mapping = aes(y =Included),stat="identity",fill = "#CC6666")+
+  geom_line(mapping = aes(y =source_value),size=1.2)+
+  facet_grid(IC~.)+
+  TypicalTheme+
+  theme(axis.text.x = element_text(angle = 90))
+
+
+TPQQuestions = list(NS1=paste0("Q",c(2, 4, 9, 11, 40, 43, 85, 93, 96)),
+                    NS2=paste0("Q",c(30, 46, 48, 50, 55, 56, 81, 99)),
+                    NS3=paste0("Q",c(32, 66, 70, 72, 76, 78, 87)),
+                    NS4=paste0("Q",c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65)),
+                    HA1=paste0("Q",c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98)),
+                    HA2=paste0("Q",c(18, 19, 23, 26, 29, 47, 51)),
+                    HA3=paste0("Q",c(33, 37, 38, 42, 44, 89, 100)),
+                    HA4=paste0("Q",c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80)),
+                    RD1=paste0("Q",c(27, 31, 34, 83, 94)),
+                    RD2=paste0("Q",c(39, 41, 45, 52, 53, 77, 79, 92, 97)),
+                    RD3=paste0("Q",c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90)),
+                    RD4=paste0("Q",c(17, 20, 25, 36, 58)),
+                    NS=paste0("Q",c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65)),
+                    HA=paste0("Q",c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80)),
+                    RD=paste0("Q",c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58)))
+
+# Cloninger_match -> percentage of cloninger questions found in each of the ICs (e.g. how much is the percentage of HA1 questions found in IC1)
+# IC_match -> percentage of IC questions found in each of Cloningers scales (e.g. how much is the percentage of IC2 questions found in RD3)
+Cloninger_match = data.frame(Cloninger_dim = names(TPQQuestions))
+IC_match = data.frame(Cloninger_dim = names(TPQQuestions))
+
+for (i in 1:nrow(sources_all)){
+  IC_num = paste0("IC",i)
+  questions = as.character(q_data_melted$Question[(!is.na(q_data_melted$Included) & q_data_melted$IC == IC_num)])
+  Cloninger_match[IC_num] = sapply(TPQQuestions, function(x) sum(x %in% questions)/length(x))
+  IC_match[IC_num] = sapply(TPQQuestions, function(x) sum(x %in% questions)/length(questions))
+}
+
+Cloninger_melted = melt(Cloninger_match, id.vars = "Cloninger_dim", value.name = "Match_percentage", variable.name = "IC")
+Cloninger_melted$Match_percentage[Cloninger_melted$Match_percentage<0.3] = 0
+
+IC_melted = melt(IC_match, id.vars = "Cloninger_dim", value.name = "Match_percentage", variable.name = "IC")
+IC_melted$Match_percentage[IC_melted$Match_percentage<0.3] = 0
+
+Clo_g = ggplot(Cloninger_melted, aes(x = Cloninger_dim, y= Match_percentage, group = IC, color = Cloninger_dim))+
+  geom_bar(stat="identity")+
+  facet_grid(IC~.)
+
+
+IC_g = ggplot(IC_melted, aes(x = Cloninger_dim, y= Match_percentage, group = IC, color = Cloninger_dim))+
+  geom_bar(stat="identity")+
+  facet_grid(IC~.)
+
+IC_g
+Clo_g
+
+```
+
+```{r compare MDD to combined data in terms of questions included and correlations}
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
+
+data_tpq_mdd = py$data_tpq_mdd
+data_reco_mdd = py$data_reco_mdd
+scores_mdd = py$scores_mdd
+projections_mdd = py$projections_mdd
+sources_mdd = py$sources_mdd
+
+
+```
+
+
+```{r trials}
+IC_num = 7
+df = data_reco_all[[IC_num]]
+
+IC_txt = paste0("IC",IC_num)
+inc_questions = as.character(q_data_melted$Question[q_data_melted$IC == IC_txt&!is.na(q_data_melted$Included)])
+
+reco_data = data_reco_all[[IC_num]]
+ID_cols = colnames(reco_data)[1:8]
+
+df = reco_data[,c(ID_cols,inc_questions)]
+for (item in c("Diagnosis","Trauma","GAD","Response","PTSD","MDD")){
+  df[[item]][df[[item]]=="NA"]=NA
+  #df[[item]] = factor(df[[item]])
+}
+
+
+#Do the MDD alone
+df$MDD[df$MDD == "No"]=0
+df$MDD[df$MDD == "Yes"]=1
+df$MDD = as.numeric(df$MDD)
+
+df = df[!is.na(df$MDD),]
+Form = as.formula(paste0("MDD ~",paste0(inc_questions,collapse = "+")))
+Model = step(glm(Form, data = df, family = binomial()),direction = "both")
+summary(Model)
+LogisticFunction(Model, returndata = TRUE)
+
+```
+
+
+
+
