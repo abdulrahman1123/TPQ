@@ -591,17 +591,21 @@ calc_per <- function(Factor){
   percentage$Question = factor(percentage$Question, levels = percentage$Question)
   percentage$Arrangement = rep(c("Normal","Arranged"),each = 100)
   percentage=melt(percentage, id.vars =c("Question", "Arrangement"), variable.name = "Answer", value.name = "Percentage")
-
+  small_data = percentage[(percentage$Arrangement == "Normal" & percentage$Answer == "True"),]
+  small_data$Arrangement = NULL
+  small_data$Answer = NULL
+  small_data$Group = Factor
+  
   fig = ggplot(percentage)+
     geom_bar(aes(x=Question, y=Percentage, group = Answer, fill = Answer),stat= "identity")+
     scale_fill_manual(values = c("#808CA3","#B9B0AB"))+
     TypicalTheme+
-    ggtitle("Percentage of Subject Answers to TPQ Questions", subtitle = paste0("For ",Factor," Group"))+
+    ggtitle("Percentage of Subject Answers to TPQ Questions", subtitle = paste0("For ",Factor," Subjects"))+
     theme(axis.text.x = element_text(angle = 90))+
     facet_wrap(~Arrangement,scales = "free",ncol=1)
  
   
-  return(list(percentage, fig))
+  return(list(percentage,small_data, fig))
 }
 all_true = calc_per("All")
 mdd_true = calc_per("MDD")
@@ -609,33 +613,42 @@ gad_true = calc_per("GAD")
 ptsd_true = calc_per("PTSD")
 trauma_true = calc_per("Trauma")
 
-multiplot(all_true[[2]],all_true[[3]], cols=1)
-multiplot(mdd_true[[2]],mdd_true[[3]], cols=1)
-multiplot(gad_true[[2]],gad_true[[3]], cols=1)
-multiplot(ptsd_true[[2]],ptsd_true[[3]], cols=1)
-multiplot(trauma_true[[2]],trauma_true[[3]], cols=1)
+AllData = rbind(all_true[[2]],gad_true[[2]],mdd_true[[2]],ptsd_true[[2]],trauma_true[[2]])
 
-percentages = data.frame(Question = rep(1:100,2), Answer = rep(c("True","False"), each = 100), All = all_true[[1]]$Percentage,
-                         MDD = mdd_true[[1]]$Percentage, GAD = gad_true[[1]]$Percentage, PTSD = ptsd_true[[1]]$Percentage, TNP = trauma_true[[1]]$Percentage)
-percentages_melted = melt(percentages, id.vars = c("Question","Answer"), value.name = "Percentage", variable.name = "Group")
-percentages_melted$Arranged_questions = Arranged_questions
-percentages_melted[order(percentages_melted$Arranged_questions),]
-percentages_melted$Question = paste0("Q",percentages_melted$Question)
+# to improve text on graph, I will create a variable for text position. 
+# It will be based on summing the percentage values for that particular question in all Groups (so, the position for "All" group will be the sum of percentages of all other groups ... and so on)
+GG = c("All","GAD","MDD","PTSD","Trauma")
 
 
+for (i in 1:100){
+  Question = paste0("Q",i)
+  values = AllData$Percentage[AllData$Question==Question] 
+  perc = sapply(GG,function(x) round(100*AllData$Percentage[AllData$Group==x&AllData$Question==Question] / sum(AllData$Percentage[AllData$Question==Question]),1))
+  norm_pos = sapply(1:length(GG), function(x) sum(values[x:5]))
+  perc_pos = sapply(1:length(GG), function(x) sum(perc[x:5]))
+  
+  AllData$Perc_Percentage[AllData$Question==Question] = perc
+  AllData$Perc_Position[AllData$Question==Question] = perc_pos-5
+  AllData$T_Position[AllData$Question==Question] = norm_pos-20
+}
 
-percentages_melted = percentages_melted[order(percentages_melted$Arranged_questions),]
-NewQuestion = percentages_melted$Question[order(percentages_melted$Arranged_questions,percentages_melted$Question)]
-NewPerc = percentages_melted$Percentage[order(percentages_melted$Arranged_questions,percentages_melted$Percentage)]
-NewAnswer = percentages_melted$Answer[order(percentages_melted$Arranged_questions,percentages_melted$Answer)]
-NewGrouping = percentages_melted$Group[order(percentages_melted$Arranged_questions,percentages_melted$Group)]
+#The following is for text
+norm = ggplot(AllData,aes(x=Question, y=Percentage, group = Group, fill = Group))+
+  geom_bar(stat= "identity")+
+  TypicalTheme+
+  scale_fill_manual(values = c("#6cBE58","#4EA3DF","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("Percentage of \"True\" Answers to TPQ Questions")+
+  geom_text(aes(y = T_Position,label=Percentage), angle = 90)+
+  theme(axis.text.x = element_text(angle = 90))
+  
 
-ggplot(percentages_melted[percentages_melted$Group=="All",])+
-  geom_bar(aes(x=Question, y=Percentage, group = Answer, fill = Answer),stat= "identity")+
-  #geom_bar(mapping=aes(x=Question, y=Percentage, group = Answer, fill = Answer),stat= "identity")+
-  scale_fill_manual(values = c("#808CA3","#B9B0AB"))+
-  TypicalTheme
+perc = ggplot(AllData,aes(x=Question, y=Perc_Percentage, group = Group, fill = Group))+
+  geom_bar(stat= "identity")+
+  TypicalTheme+
+  scale_fill_manual(values = c("#6cBE58","#4EA3DF","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("Percentage of Percentages of Subject Answers to TPQ Questions", subtitle = paste0(" Note: this figure just shows the percentages of the percentages of the figures above"))+
+  geom_text(aes(y = Perc_Position,label=Perc_Percentage), angle = 90)+
+  theme(axis.text.x = element_text(angle = 90))
 
-  facet_grid(~Group,scales = "free")
-
+multiplot(norm,perc)
 ```
