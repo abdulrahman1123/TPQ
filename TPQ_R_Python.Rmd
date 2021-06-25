@@ -315,9 +315,8 @@ colTypes = c(
   rep("text", 100)
 )
 
-
 #read the data
-score_parent = "/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/"
+score_parent = "/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/TPQ_DataAndAnalysis/"
 score_path = paste0(score_parent, "TPQ_Analysis_All_25.11.2020.xlsx")
 if (!dir.exists(score_parent)) {
   score_path = gsub(
@@ -543,6 +542,7 @@ for (i in 1:length(weighted_noboot_fast_list)){
     weighted_noboot_fast_list[[i]][paste0("weight_",i_name)] = apply(weighted_noboot_fast_list[[i]][item],1,sum, na.rm = TRUE)
   }
 }
+colnames(weighted_fast) = gsub("QO", "Q",colnames(weighted_fast))
 
 calc_r <- function(var_name, data_frame){
   text_form = as.formula(paste0(var_name," ~ ",paste(colnames(weighted_fast)[TPQQuestions[[var_name]]],collapse = " + ")))
@@ -614,6 +614,7 @@ rownames(m_bi) = 1:14
 colnames(m_bi) = c("Fast_boot","Fast_noboot","Infomax_boot")
 d_bi = melt(data.frame(m_bi))
 d_bi$IC_data_num = rep(1:14,3)
+
 ggplot(data = d_bi, mapping = aes(x = IC_data_num, y=value, group = variable, fill=variable))+
   geom_bar(stat = "identity",position = position_dodge(0.9),color = "black")+
   scale_y_continuous(name = "Number of Binomial Questions")+
@@ -621,6 +622,7 @@ ggplot(data = d_bi, mapping = aes(x = IC_data_num, y=value, group = variable, fi
   scale_fill_manual(values = c("#Eb4C42","#4EA3DF","#6cBE58"))+
   ggtitle("Binomial Question Count in all ICs in all IC Methods")+
   TypicalTheme
+
 ```
 
 

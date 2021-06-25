@@ -300,6 +300,7 @@ plot_reco <- function(IC_num,Factor){
 
 }
 
+sapply(1:10, function(x) plot_reco(x, "MDD"), simplify = FALSE)
 sapply(1:10, function(x) plot_reco(x, "Diagnosis"), simplify = FALSE)
 sapply(1:10, function(x) plot_reco(x, "PTSD"), simplify = FALSE)
 sapply(1:10, function(x) plot_reco(x, "Trauma"), simplify = FALSE)
@@ -385,6 +386,15 @@ Clo_g
 ```
 
 ```{r compare MDD to combined data in terms of questions included and correlations}
+library (ppcor)
+library(readxl)
+library(reshape2)
+library(ggplot2)
+library(dplyr)
+library(Hmisc)
+library(corrplot)
+library(abind)
+
 data_tpq_all = py$data_tpq_all
 data_reco_all = py$data_reco_all
 scores_all = py$scores_all
@@ -402,7 +412,8 @@ sources_mdd = py$sources_mdd
 
 
 ```{r trials}
-IC_num = 7
+IC_num = 2
+Factor = "Trauma"
 df = data_reco_all[[IC_num]]
 
 IC_txt = paste0("IC",IC_num)
@@ -412,25 +423,219 @@ reco_data = data_reco_all[[IC_num]]
 ID_cols = colnames(reco_data)[1:8]
 
 df = reco_data[,c(ID_cols,inc_questions)]
+df[,c(9:ncol(df))] = apply(df[,c(9:ncol(df))], 2,as.numeric)
+
 for (item in c("Diagnosis","Trauma","GAD","Response","PTSD","MDD")){
   df[[item]][df[[item]]=="NA"]=NA
-  #df[[item]] = factor(df[[item]])
 }
 
 
 #Do the MDD alone
-df$MDD[df$MDD == "No"]=0
-df$MDD[df$MDD == "Yes"]=1
-df$MDD = as.numeric(df$MDD)
+df[[Factor]][df[[Factor]] == "No"]=0
+df[[Factor]][df[[Factor]] == "Yes"]=1
+df[[Factor]] = as.factor(df[[Factor]])
 
-df = df[!is.na(df$MDD),]
-Form = as.formula(paste0("MDD ~",paste0(inc_questions,collapse = "+")))
-Model = step(glm(Form, data = df, family = binomial()),direction = "both")
+df = df[!is.na(df[[Factor]]),]
+
+# Do the sum of questions of this IC
+df$IC_sum = as.vector(apply(df[,inc_questions],1,sum))
+
+Form = as.formula(paste0(Factor,"~",paste0(inc_questions,collapse = "+")))
+Model = step(glm(formula = Form, data = df, family = binomial),direction = "backward")
+Model2 = glm(as.formula(paste(Factor,"~IC_sum")), data = df, family=binomial)
 summary(Model)
-LogisticFunction(Model, returndata = TRUE)
+summary(Model2)
 
+LogisticFunction(Model)
+LogisticFunction(Model2, plt_type="histogram")
+
+# Apparently, most variables are correlated with each other
+# lets check this
+library(matlib)
+Cors = cor(df[,9:ncol(df)])
+corrplot(Cors)
+pairs(df[,9:ncol(df)], col=as.factor(df$MDD))
+#Not cool
 ```
 
 
+```{r understand how to get reconstructed data from sources}
+sources = as.matrix(sources_all)
+projections = projections_all[,9:23]
+projections = apply(projections,2,as.numeric)
+projections =as.matrix(projections)
+orig_data = data_tpq_all[9:108]
+IC1_pro = matrix(orig_data[1,],ncol = 1)%*%matrix(projections[,1],nrow = 1)
+
+IC1_reco = data_reco_all[[1]][,9:108]
+IC1_orig = t(as.matrix(orig_data))%*%projections
+
+#multiply sources with the inverse of original data to get the mixing matrix
+sources%*%inv(t(orig_data))
+
+# Conclusion: I do not have the full mixing matrix. I will only use the reco data
+sources
+```
+
+```{python ICA trial}
+import numpy as np
+np.random.seed(0)
+from scipy import signal
+from scipy.io import wavfile
+from matplotlib import pyplot as plt
+import seaborn as sns
+sns.set(rc={'figure.figsize':(11.7,8.27)})
+
+def g(x):
+    return np.tanh(x)
+def g_der(x):
+    return 1 - g(x) * g(x)
 
 
+def center(X):
+    X = np.array(X)
+    mean = X.mean(axis=1, keepdims=True)
+    return X - mean
+
+def whitening(X):
+    cov = np.cov(X)
+    d, E = np.linalg.eigh(cov)
+    D = np.diag(d)
+    D_inv = np.sqrt(np.linalg.inv(D))
+    X_whiten = np.dot(E, np.dot(D_inv, np.dot(E.T, X)))
+    return X_whiten
+
+def calculate_new_w(w, X):
+    w_new = (X * g(np.dot(w.T, X))).mean(axis=1) - g_der(np.dot(w.T, X)).mean() * w
+    w_new /= np.sqrt((w_new ** 2).sum())
+    return w_new
+
+
+def ica(X, iterations, tolerance=1e-5):
+    X = center(X)
+    X = whitening(X)
+    components_nr = X.shape[0]
+    W = np.zeros((components_nr, components_nr), dtype=X.dtype)
+    for i in range(components_nr):
+        w = np.random.rand(components_nr)
+        for j in range(iterations):
+            w_new = calculate_new_w(w, X)
+            if i >= 1:
+                w_new -= np.dot(np.dot(w_new, W[:i].T), W[:i])
+            distance = np.abs(np.abs((w * w_new).sum()) - 1)
+            w = w_new
+            if distance < tolerance:
+                break
+        W[i, :] = w
+    S = np.dot(W, X)
+    return S
+
+def plot_mixture_sources_predictions(X, original_sources, S):
+    fig = plt.figure()
+    plt.subplot(3, 1, 1)
+    for x in X:
+        plt.plot(x)
+    plt.title("mixtures")
+    plt.subplot(3, 1, 2)
+    for s in original_sources:
+        plt.plot(s)
+    plt.title("real sources")
+    plt.subplot(3,1,3)
+    for s in S:
+        plt.plot(s)
+    plt.title("predicted sources")
+
+    fig.tight_layout()
+    plt.show()
+
+
+def mix_sources(mixtures, apply_noise=False):
+    for i in range(len(mixtures)):
+        max_val = np.max(mixtures[i])
+        if max_val > 1 or np.min(mixtures[i]) < 1:
+            mixtures[i] = mixtures[i] / (max_val / 2) - 0.5
+    X = np.c_[[mix for mix in mixtures]]
+    if apply_noise:
+        X += 0.02 * np.random.normal(size=X.shape)
+    return X
+
+n_samples = 2000
+time = np.linspace(0, 8, n_samples)
+s1 = np.sin(2 * time)  # sinusoidal
+s2 = np.sign(np.sin(3 * time))  # square signal
+s3 = signal.sawtooth(2 * np.pi * time)  # saw tooth signal
+
+X = np.c_[s1, s2, s3]
+A = np.array(([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]]))
+X = np.dot(X, A.T)
+X = X.T
+S = ica(X, iterations=1000)
+```
+```{r ICA trial}
+py$S
+CC = cor(py$S)
+corrplot(CC[,1:200])
+```
+
+```{r T and F percentage for all questions (Mohammd Binomiality)}
+data =  data_tpq_all
+data$All = "Yes"
+calc_per <- function(Factor){
+  ans_true = sapply(9:108,function(x) data[(data[[Factor]]=="Yes"&!is.na(data[[Factor]]=="Yes")),x]==1)
+  per_True = apply(ans_true,2,sum)/length(ans_true[,1])
+  per_False = 1-per_True
+  percentage = data.frame(Question =paste0("Q", 1:100),True = round(100*per_True,1), False = round(100*per_False,2))
+  percentage_ar = percentage[order(percentage$True),]
+  percentage_ar$Question = gsub("Q","A",percentage_ar$Question)
+  percentage = rbind(percentage,percentage_ar)
+  percentage$Question = factor(percentage$Question, levels = percentage$Question)
+  percentage$Arrangement = rep(c("Normal","Arranged"),each = 100)
+  percentage=melt(percentage, id.vars =c("Question", "Arrangement"), variable.name = "Answer", value.name = "Percentage")
+
+  fig = ggplot(percentage)+
+    geom_bar(aes(x=Question, y=Percentage, group = Answer, fill = Answer),stat= "identity")+
+    scale_fill_manual(values = c("#808CA3","#B9B0AB"))+
+    TypicalTheme+
+    ggtitle("Percentage of Subject Answers to TPQ Questions", subtitle = paste0("For ",Factor," Group"))+
+    theme(axis.text.x = element_text(angle = 90))+
+    facet_wrap(~Arrangement,scales = "free",ncol=1)
+ 
+  
+  return(list(percentage, fig))
+}
+all_true = calc_per("All")
+mdd_true = calc_per("MDD")
+gad_true = calc_per("GAD")
+ptsd_true = calc_per("PTSD")
+trauma_true = calc_per("Trauma")
+
+multiplot(all_true[[2]],all_true[[3]], cols=1)
+multiplot(mdd_true[[2]],mdd_true[[3]], cols=1)
+multiplot(gad_true[[2]],gad_true[[3]], cols=1)
+multiplot(ptsd_true[[2]],ptsd_true[[3]], cols=1)
+multiplot(trauma_true[[2]],trauma_true[[3]], cols=1)
+
+percentages = data.frame(Question = rep(1:100,2), Answer = rep(c("True","False"), each = 100), All = all_true[[1]]$Percentage,
+                         MDD = mdd_true[[1]]$Percentage, GAD = gad_true[[1]]$Percentage, PTSD = ptsd_true[[1]]$Percentage, TNP = trauma_true[[1]]$Percentage)
+percentages_melted = melt(percentages, id.vars = c("Question","Answer"), value.name = "Percentage", variable.name = "Group")
+percentages_melted$Arranged_questions = Arranged_questions
+percentages_melted[order(percentages_melted$Arranged_questions),]
+percentages_melted$Question = paste0("Q",percentages_melted$Question)
+
+
+
+percentages_melted = percentages_melted[order(percentages_melted$Arranged_questions),]
+NewQuestion = percentages_melted$Question[order(percentages_melted$Arranged_questions,percentages_melted$Question)]
+NewPerc = percentages_melted$Percentage[order(percentages_melted$Arranged_questions,percentages_melted$Percentage)]
+NewAnswer = percentages_melted$Answer[order(percentages_melted$Arranged_questions,percentages_melted$Answer)]
+NewGrouping = percentages_melted$Group[order(percentages_melted$Arranged_questions,percentages_melted$Group)]
+
+ggplot(percentages_melted[percentages_melted$Group=="All",])+
+  geom_bar(aes(x=Question, y=Percentage, group = Answer, fill = Answer),stat= "identity")+
+  #geom_bar(mapping=aes(x=Question, y=Percentage, group = Answer, fill = Answer),stat= "identity")+
+  scale_fill_manual(values = c("#808CA3","#B9B0AB"))+
+  TypicalTheme
+
+  facet_grid(~Group,scales = "free")
+
+```

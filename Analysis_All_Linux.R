@@ -763,14 +763,18 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
                                     predicted.outcome = Data$predicted.outcome,
                                     actual.outcome = Data[[PredictedVarName]])
   
-  for (i in 2:length(as.character(Model_IC_All$formula[[3]]))){
-    local_factor= as.character(Model_IC_All$formula[[3]])[i]
+  for (i in 2:length(as.character(Model$formula[[3]]))){
+    local_factor= as.character(Model$formula[[3]])[i]
     data_frame_essential[[local_factor]]=Data[[local_factor]]
   }
   
   #Create prediction matrix
   PredMatrix=table(data_frame_essential$predicted.outcome,data_frame_essential$actual.outcome)
-  rownames(PredMatrix)=c("0(Predicted)","1(Predicted)"); colnames(PredMatrix)=c("0(Actual)","1(Actual)")
+  #in case all cases are predicted to be 0 or 1, this will make PredMatrixa 1-row matrix. So, I will go through items one by one
+  for (i in 1:length(rownames(PredMatrix))){
+    rownames(PredMatrix)[i]=gsub(rownames(PredMatrix)[i],paste0(rownames(PredMatrix),"(Predicted)"),rownames(PredMatrix)[i])
+  }
+  colnames(PredMatrix)=c("0(Actual)","1(Actual)")
   
   LogValues=data.frame(Beta, SE, Lower.CI, odds_ratio, Upper.CI, Zvalues, Pvalues)
   DerivedValues=data.frame(chisq=modelChi, df=chidf, p.value.chi=chisq.prob, r2.hl=R2.hl, r2.cs=R2.cs, r2.n=R2.n, sensitivity=Sensitivity, specificity=Specificity)
