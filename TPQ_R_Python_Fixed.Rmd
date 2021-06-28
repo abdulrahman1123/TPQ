@@ -99,8 +99,10 @@ or_scores.loc[pd.isna(or_scores["MDD"]),or_scores.columns=="MDD"] = "NA"
 path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO_fixed/decomp_tpq'
 if not os.path.exists(path):
     path = path.replace("/abdulrahman/abdulrahman.sawalma@gmail.com","/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
-
-all_path = path+'/HC,MDD,PTSD,TNP,GAD_infomax/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz'
+    
+all_path = path+'/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz'
+all_fast_path = path + '/HC,MDD,PTSD,TNP,GAD_FastICA_MNE/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEfastica.npz'
+all_fastsk_path = path + '/HC,MDD,PTSD,TNP,GAD_FastICA_sklearn/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_SklearnFastICA.npz'
 hc_path  = path + '/HC/icasso_ICA-tpq_HC_nsamp1202_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
 mdd_path = path + '/MDD/icasso_ICA-tpq_MDD_nsamp455_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
 gad_path = path + '/GAD/icasso_ICA-tpq_GAD_nsamp30_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
@@ -109,6 +111,8 @@ tnp_path = path + '/TNP/icasso_ICA-tpq_TNP_nsamp78_n_comp13_n_iter100_dist0.30_M
 disorders_path = path + '/MDD,PTSD,TNP,GAD/icasso_ICA-tpq_MDD,PTSD,TNP,GAD_nsamp620_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
 
 data_tpq_all, data_reco_all, scores_all,projections_all,sources_all = prepare_icasso(all_path)
+data_tpq_all_fast, data_reco_all_fast, scores_all_fast, projections_all_fast, sources_all_fast = prepare_icasso(all_fast_path)
+data_tpq_all_fastsk, data_reco_all_fastsk, scores_all_fastsk, projections_all_fastsk, sources_all_fastsk = prepare_icasso(all_fastsk_path)
 data_tpq_hc, data_reco_hc, scores_hc,projections_hc,sources_hc = prepare_icasso(hc_path)
 data_tpq_mdd, data_reco_mdd, scores_mdd,projections_mdd,sources_mdd = prepare_icasso(mdd_path)
 data_tpq_gad, data_reco_gad, scores_gad,projections_gad,sources_gad = prepare_icasso(gad_path)
@@ -459,22 +463,172 @@ pairs(df[,9:ncol(df)], col=as.factor(df$MDD))
 ```
 
 
-```{r understand how to get reconstructed data from sources}
-sources = as.matrix(sources_all)
-projections = projections_all[,9:23]
-projections = apply(projections,2,as.numeric)
-projections =as.matrix(projections)
-orig_data = data_tpq_all[9:108]
-IC1_pro = matrix(orig_data[1,],ncol = 1)%*%matrix(projections[,1],nrow = 1)
+```{r plot the question loadings and how much they load on each question}
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
 
-IC1_reco = data_reco_all[[1]][,9:108]
-IC1_orig = t(as.matrix(orig_data))%*%projections
+data_tpq_all_fast = py$data_tpq_all_fast
+data_reco_all_fast = py$data_reco_all_fast
+scores_all_fast = py$scores_all_fast
+projections_all_fast = py$projections_all_fast
+sources_all_fast = py$sources_all_fast
 
-#multiply sources with the inverse of original data to get the mixing matrix
-sources%*%inv(t(orig_data))
 
-# Conclusion: I do not have the full mixing matrix. I will only use the reco data
-sources
+#convert the first 8 columns to factor and the last 100 as numerics for all sub_dataframes in data_reco
+for (i in 1:length(data_reco_all)){
+  data_reco_all[[i]][,9:ncol(data_reco_all[[i]])] = as.data.frame(apply(data_reco_all[[i]][,9:ncol(data_reco_all[[i]])],2,as.numeric))
+  data_reco_all[[i]][,1:8] = as.data.frame(apply(data_reco_all[[i]][,1:8],2,as.factor))
+}
+for (i in 1:length(data_reco_all_fast)){
+  data_reco_all_fast[[i]][,9:ncol(data_reco_all_fast[[i]])] = as.data.frame(apply(data_reco_all_fast[[i]][,9:ncol(data_reco_all_fast[[i]])],2,as.numeric))
+  data_reco_all_fast[[i]][,1:8] = as.data.frame(apply(data_reco_all_fast[[i]][,1:8],2,as.factor))
+}
+
+df_scores = data_tpq_all
+
+list_loading = sapply(1:length(data_reco_all), function(x) cbind(df_scores[,1:8],(data_reco_all[[1]][,9:108] /df_scores[,9:108])), simplify = FALSE)
+list_loading_fast = sapply(1:length(data_reco_all_fast), function(x) cbind(df_scores[,1:8],(data_reco_all_fast[[1]][,9:108] /df_scores[,9:108])), simplify = FALSE)
+
+IC_num = 1
+df_loading = list_loading[[IC_num]]
+inf_inds = simplifyDims(lapply(1:100, function(x) which(df_loading[,x]==Inf|df_loading[,x]==-Inf)))
+
+df_loading = df_loading[-inf_inds,]
+
+inc_loadings = sapply(9:108, function(x) sum(abs(df_loading[,x]) > 0.25, na.rm = TRUE)>0.4*nrow(df_loading))
+inc_loadings_melt = melt(df_loading,id.vars = "ID", measure.vars = paste0("Q",1:100), variable.name = "Question", value.name = "Loading")
+fig_loading = ggplot(inc_loadings_melt, aes(x= Question, y = ID))+
+    geom_raster(aes(fill=Loading)) + 
+    scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0, limits = c(-1,1)) +
+    ggtitle(label = "Final Scores for All Subjects", subtitle = "For the 5 Groups of Subjects")
+
+
+corrplot(cor(data_reco_all[[1]][,9:108]))
+corrplot(cor(cbind(data_reco_all[[1]][,9:108],data_reco_all[[3]][,9:108])))
+
+corrplot(cor(cbind(data_reco_all_fast[[1]][,9:108],data_reco_all[[2]][,9:108])))
+# All questions inside each IC, and questions of different ICs are very highly correlated
+
+
+```
+
+```{r compare different IC methods}
+library(ggplot2)
+library(reshape2)
+
+calc_factor <- function(included_df,fac_name){
+  included_df[[fac_name]][included_df[[fac_name]]=="NA"]=NA
+  included_df[[fac_name]] = factor(included_df[[fac_name]])
+  data_frame = data.frame(sapply(levels(included_df[[fac_name]]), function(x) apply(included_df[included_df[[fac_name]] == x,9:ncol(included_df)],2,mean, na.rm = TRUE)))
+  names = sapply(levels(included_df[[fac_name]]), function(x) sum(included_df[[fac_name]] == x, na.rm = TRUE))
+  colnames(data_frame) = paste0(colnames(data_frame),"(",names,")")
+  data_frame$Question =rownames(data_frame)
+  return(data_frame)
+}
+
+
+
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
+
+
+
+data_tpq_all_fast = py$data_tpq_all_fast
+data_reco_all_fast = py$data_reco_all_fast
+scores_all_fast = py$scores_all_fast
+projections_all_fast = py$projections_all_fast
+sources_all_fast = py$sources_all_fast
+
+data_tpq_all_fastsk = py$data_tpq_all_fastsk
+data_reco_all_fastsk = py$data_reco_all_fastsk
+scores_all_fastsk = py$scores_all_fastsk
+projections_all_fastsk = py$projections_all_fastsk
+sources_all_fastsk = py$sources_all_fastsk
+
+
+#convert the first 8 columns to factor and the last 100 as numerics for all sub_dataframes in data_reco
+for (i in 1:length(data_reco_all)){
+  data_reco_all[[i]][,9:ncol(data_reco_all[[i]])] = as.data.frame(apply(data_reco_all[[i]][,9:ncol(data_reco_all[[i]])],2,as.numeric))
+  data_reco_all[[i]][,1:8][data_reco_all[[i]][,1:8] == "NA"]=NA
+  data_reco_all[[i]][,1:8] = as.data.frame(apply(data_reco_all[[i]][,1:8],2,as.factor))
+}
+for (i in 1:length(data_reco_all_fast)){
+  data_reco_all_fast[[i]][,9:ncol(data_reco_all_fast[[i]])] = as.data.frame(apply(data_reco_all_fast[[i]][,9:ncol(data_reco_all_fast[[i]])],2,as.numeric))
+  data_reco_all_fast[[i]][,1:8][data_reco_all_fast[[i]][,1:8] == "NA"]=NA
+  data_reco_all_fast[[i]][,1:8] = as.data.frame(apply(data_reco_all_fast[[i]][,1:8],2,as.factor))
+}
+for (i in 1:length(data_reco_all_fastsk)){
+  data_reco_all_fastsk[[i]][,9:ncol(data_reco_all_fastsk[[i]])] = as.data.frame(apply(data_reco_all_fastsk[[i]][,9:ncol(data_reco_all_fastsk[[i]])],2,as.numeric))
+  data_reco_all_fastsk[[i]][,1:8][data_reco_all_fastsk[[i]][,1:8] == "NA"]=NA
+  data_reco_all_fastsk[[i]][,1:8] = as.data.frame(apply(data_reco_all_fastsk[[i]][,1:8],2,as.factor))
+}
+
+
+
+
+plot_IC_compare <- function(IC_num,Factor, df_1,df_2, data_frame_1_text, data_frame_2_text){
+  
+  melted_df_1 = melt(df_1, id.vars = c("ID",Factor), measure.vars = paste0("Q",1:100), value.name = "Reconstructed_values", variable.name = "Question")
+  melted_df_2 = melt(df_2, id.vars = c("ID",Factor), measure.vars = paste0("Q",1:100), value.name = "Reconstructed_values", variable.name = "Question")
+  
+  DataMeans_1 = SMeans(melted_df_1,"Reconstructed_values",IVs = c("Question",Factor), GroupBy = Factor)
+  DataMeans_2 = SMeans(melted_df_2,"Reconstructed_values",IVs = c("Question",Factor), GroupBy = Factor)
+  
+  g1 = ggplot(DataMeans_1,aes(x=Question,y = Reconstructed_values, group = Groups, fill = Groups))+
+    geom_point(size=2,shape = 21,color = "black")+
+    scale_fill_manual(values = c("black","white","#00A550","#Eb4C42","#0087BD"))+
+    TypicalTheme+
+    ggtitle(paste0(Factor," Groups Compared in IC", IC_num),subtitle = paste0("for ",data_frame_1_text," Data Frame"))
+  
+  g2 = ggplot(DataMeans_2,aes(x=Question,y = Reconstructed_values, group = Groups, fill = Groups))+
+    geom_point(size=2,shape = 21,color = "black")+
+    scale_fill_manual(values = c("black","white","#00A550","#Eb4C42","#0087BD"))+
+    TypicalTheme+
+    ggtitle(paste0(Factor," Groups Compared in IC", IC_num),subtitle = paste0("for ",data_frame_2_text," Data Frame"))
+  
+  return(list(g1,g2))
+}
+
+plot_IC_single <- function(IC_num,Factor, df_1, data_frame_1_text){
+  
+  melted_df_1 = melt(df_1, id.vars = c("ID",Factor), measure.vars = paste0("Q",1:100), value.name = "Reconstructed_values", variable.name = "Question")
+
+  DataMeans_1 = SMeans(melted_df_1,"Reconstructed_values",IVs = c("Question",Factor), GroupBy = Factor)
+
+  g1 = ggplot(DataMeans_1,aes(x=Question,y = Reconstructed_values, group = Groups, fill = Groups))+
+    geom_point(size=2,shape = 21,color = "black")+
+    scale_fill_manual(values = c("black","white","#00A550","#Eb4C42","#0087BD"))+
+    TypicalTheme+
+    ggtitle(paste0(Factor," Groups Compared in IC", IC_num),subtitle = paste0("for ",data_frame_1_text," Data Frame"))
+  
+  return(list(g1))
+}
+
+IC_num = 1
+Factor = "MDD"
+data_frame_1_text = "Infomax"
+data_frame_2_text = "FastICA"
+data_frame_3_text = "FastICA_sklearn"
+data_list_1 = data_reco_all
+data_list_2 = data_reco_all_fast
+data_list_3 = data_reco_all_fastsk
+
+df_1 = data_list_1[[IC_num]]
+df_2 = data_list_2[[IC_num]]
+df_3 = data_list_3[[IC_num]]
+
+gs_infomax = sapply(1:length(data_list_1), function(x) plot_IC_single(x,Factor,data_list_1[[x]], data_frame_1_text))
+gs_fast = sapply(1:length(data_list_2), function(x) plot_IC_single(x,Factor,data_list_2[[x]], data_frame_2_text))
+gs_fastsk = sapply(1:length(data_list_3), function(x) plot_IC_single(x,Factor,data_list_3[[x]], data_frame_3_text))
+#gs = sapply(1:lengthx) plot_IC(IC_num, Factor, df_1, df_2, data_frame_1_text, data_frame_2_text)
+
+multiplot(gs_infomax, Listing = TRUE, cols = 3)
 ```
 
 ```{python ICA trial}

@@ -23,9 +23,13 @@ library(psy)
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import os
 
 path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO/icasso_tpq_reco/bootstrap/'
-
+or_scores_path = "/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx"
+if os.path.exists("/home/asawalma/"):
+  path = path.replace("/home/abdulrahman/abdulrahman.sawalma@gmail.com","/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
+  or_scores_path = or_scores_path.replace("/home/abdulrahman/abdulrahman.sawalma@gmail.com","/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
 fname_reco_all = path + 'icasso_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.50_bootstrap_MNEinfomax_data_reco.npz'
 fname_reco_hc = path + 'icasso_HC_nsamp1202_n_comp13_n_iter100_dist0.50_bootstrap_MNEinfomax_data_reco.npz'
 fname_reco_mdd = path + 'icasso_MDD_nsamp455_n_comp06_n_iter100_dist0.45_bootstrap_MNEinfomax_data_reco.npz'
@@ -37,9 +41,13 @@ npz_mdd = np.load(fname_reco_mdd, allow_pickle=True)
 npz_ids = np.load(ids_all, allow_pickle=True)
 
 #rearrange groups and IDs according to the IDs in npz_ids
-df = pd.read_excel("/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/TPQ_DataAndAnalysis/TPQData_ICA_25.11.2020.xlsx")
-sub_inds = [np.where(df["ID"] == npz_ids[i])[0][0] for i in range(len(npz_ids))]
-groups = [df["Group"][item] for item in sub_inds]
+df = pd.read_excel(or_scores_path)
+sub_inds =[]
+for i in range(len(npz_ids)):
+  if npz_ids[i] in df["Final ID"].tolist():
+    sub_inds.append(np.where(df["Final ID"] == npz_ids[i])[0][0])
+
+groups = [df["Diagnosis"][item] for item in sub_inds]
 IDs = [df["ID"][item] for item in sub_inds]
 session = [df["Session"][item] for item in sub_inds]
 #create info_array which contains groups, IDs and session
@@ -910,9 +918,9 @@ if (!dir.exists(fig_dir)) {
 }
 
 #save all figures for each of the IC data frames
-sapply(1: length(df_fast_list), function(x)
+sapply(1: length(py$data_fast), function(x)
   ggsave(paste0(fig_dir,"/Q_Threshold_FastICA_Boot_",x,".png"),
-    plot = plot_questions(df_fast_list[[x]], plotting = "loadings"), width = 570,
+    plot = plot_questions(data_fast[[x]], plotting = "loadings"), width = 570,
     height = 340, units = "mm", limitsize = FALSE))
 
 sapply(1: length(df_noboot_fast_list), function(x)
