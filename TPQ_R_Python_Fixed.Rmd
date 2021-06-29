@@ -507,6 +507,7 @@ fig_loading = ggplot(inc_loadings_melt, aes(x= Question, y = ID))+
 
 
 corrplot(cor(data_reco_all[[1]][,9:108]))
+corrplot(cor(t(data_reco_all[[1]][,9:108])))
 corrplot(cor(cbind(data_reco_all[[1]][,9:108],data_reco_all[[3]][,9:108])))
 
 corrplot(cor(cbind(data_reco_all_fast[[1]][,9:108],data_reco_all[[2]][,9:108])))
@@ -596,22 +597,27 @@ plot_IC_compare <- function(IC_num,Factor, df_1,df_2, data_frame_1_text, data_fr
 }
 
 plot_IC_single <- function(IC_num,Factor, df_1, data_frame_1_text){
-  
   melted_df_1 = melt(df_1, id.vars = c("ID",Factor), measure.vars = paste0("Q",1:100), value.name = "Reconstructed_values", variable.name = "Question")
 
   DataMeans_1 = SMeans(melted_df_1,"Reconstructed_values",IVs = c("Question",Factor), GroupBy = Factor)
-
+  
+  #if you have 3 factor levels (HC, Non-responder and responder), change color order to reflect this
+  if (nlevels(df_1[[Factor]])==3){
+    Colors = c("#6cBE58","#C33E3B","#4EA3DF","#808CA3","#B9B0AB")
+  } else {
+    Colors = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB")
+  }
+  
   g1 = ggplot(DataMeans_1,aes(x=Question,y = Reconstructed_values, group = Groups, fill = Groups))+
     geom_point(size=2,shape = 21,color = "black")+
-    scale_fill_manual(values = c("black","white","#00A550","#Eb4C42","#0087BD"))+
+    scale_fill_manual(values = Colors)+
     TypicalTheme+
     ggtitle(paste0(Factor," Groups Compared in IC", IC_num),subtitle = paste0("for ",data_frame_1_text," Data Frame"))
-  
   return(list(g1))
 }
 
 IC_num = 1
-Factor = "MDD"
+Factor = "PTSD"
 data_frame_1_text = "Infomax"
 data_frame_2_text = "FastICA"
 data_frame_3_text = "FastICA_sklearn"
@@ -629,8 +635,26 @@ gs_fastsk = sapply(1:length(data_list_3), function(x) plot_IC_single(x,Factor,da
 #gs = sapply(1:lengthx) plot_IC(IC_num, Factor, df_1, df_2, data_frame_1_text, data_frame_2_text)
 
 multiplot(gs_infomax, Listing = TRUE, cols = 3)
+
 ```
 
+
+```{r understand ICA}
+data_tpq_mdd = py$data_tpq_mdd
+data_reco_mdd = py$data_reco_mdd
+scores_mdd = py$scores_mdd
+projections_mdd = py$projections_mdd
+sources_mdd = py$sources_mdd
+
+# I assume that reconstruction can be calculated as follows:
+# original_df x single source (a matrix)
+SS = as.vector(as.matrix(sources_mdd[1,]))
+SS = matrix(c(SS,rep(0,9900)), ncol = 100, byrow = TRUE)
+
+XX = as.matrix(data_tpq_mdd[,9:108])
+XX%*%SS
+
+```
 ```{python ICA trial}
 import numpy as np
 np.random.seed(0)
