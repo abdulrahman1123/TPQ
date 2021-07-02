@@ -35,7 +35,7 @@ def prepare_icasso(npz_tpq_path):
     :return: five data frames (see description)
     """
     npz_tpq = np.load(npz_tpq_path, allow_pickle=True)
-    results_path = npz_tpq_path.replace("icasso_ICA-tpq","icasso-results_ICA-tpq")
+    results_path = npz_tpq_path.replace("icasso_ICA-tpq","icasso-results_ICA-tpq").replace("icasso_ICA-subjects","icasso-results_ICA-subjects")
     npz_results = np.load(results_path, allow_pickle=True)
     # extract IDs
     IDs = npz_tpq["IDs"]
@@ -119,6 +119,75 @@ data_tpq_gad, data_reco_gad, scores_gad,projections_gad,sources_gad = prepare_ic
 data_tpq_ptsd, data_reco_ptsd, scores_ptsd,projections_ptsd,sources_ptsd = prepare_icasso(ptsd_path)
 data_tpq_tnp, data_reco_tnp, scores_tnp,projections_tnp,sources_tnp = prepare_icasso(tnp_path)
 data_tpq_disorders, data_reco_disorders, scores_disorders,projections_disorders,sources_disorders = prepare_icasso(disorders_path)
+
+```
+
+```{python add subjects_decomposition}
+
+def prepare_icasso_subjects(npz_sub_path):
+    """
+    prepare the data from the npz files sent to me by Juergen.
+    It creates the following five data frames/groups of data frames:
+    data_tpq, data_reco, scores, projections and sources
+    All DFs will have column names indicating what they represent
+    :param npz_sub_path: the path to the tpq npz (which is the one that contains the basic info such as IDs)
+    :return: five data frames (see description)
+    """
+    npz_sub = np.load(npz_sub_path, allow_pickle=True)
+    results_path = npz_sub_path.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects",
+                                                                                            "icasso-results_ICA-subjects")
+    npz_results = np.load(results_path, allow_pickle=True)
+    # extract IDs
+    IDs = npz_sub["IDs"]
+    diagnoses = []
+    trauma = []
+    gad = []
+    response = []
+    ptsd = []
+    mdd = []
+    session = []
+    for i in range(len(IDs)):
+        if IDs[i] in list(or_scores["Final ID"]):
+            diagnoses.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "Diagnosis"])[0])
+            trauma.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "Trauma"])[0])
+            gad.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "GAD"])[0])
+            response.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "Response"])[0])
+            ptsd.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "PTSD"])[0])
+            mdd.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "MDD"])[0])
+            session.append(list(or_scores.loc[or_scores["Final ID"] == IDs[i], "Session"])[0])
+        else:
+            diagnoses.append("NA")
+            trauma.append("NA")
+            gad.append("NA")
+            response.append("NA")
+            ptsd.append("NA")
+            mdd.append("NA")
+            session.append("NA")
+    # create two data frames to be added to the data inside each dictionary item
+    sub_info_2d = [[IDs[i], diagnoses[i], trauma[i], gad[i], response[i], ptsd[i], mdd[i], session[i]] for i in
+                   range(len(IDs))]
+    sub_info_3d = [np.array(sub_info_2d).transpose().tolist()] * npz_results["data_reco"].shape[0]
+    sub_info = pd.DataFrame(sub_info_2d,
+                            columns=["ID", "Diagnosies", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session"]).transpose()
+    # read all data
+    data_tpq = pd.DataFrame(npz_sub["data_tpq"])
+    data_tpq = sub_info.append(data_tpq)
+    # rename the columns
+    data_tpq.columns = ["S" + str(i) for i in range(1, 1823)]
+
+    data_reco = npz_results["data_reco"]
+    data_reco = [pd.DataFrame(item, columns=["S" + str(i) for i in range(1, 1823)]) for item in
+                 np.append(np.array(sub_info_3d), data_reco, axis=1)]
+    scores = npz_results["scores"]
+    projections = npz_results['projection']
+
+    sources = npz_results["sources"]
+    sources = pd.DataFrame(np.append(np.array(sub_info_2d).transpose(),sources,axis=0), columns=["S" + str(i) for i in range(1, 1823)])
+    return (data_tpq, data_reco, scores, projections, sources)
+
+#Now we add the subjects decomposition
+subjects_path = path + "/../../Subject_DataAnalysis/HC,MDD,PTSD,TNP,GAD/n_comp13/icasso_ICA-subjects_HC,MDD,PTSD,TNP,GAD_nsamp100_n_comp13_n_iter100_dist0.40_MNEinfomax.npz"
+subjects_tpq_all, subjects_reco_all, subjects_all,subjects_all,subjects_all = prepare_icasso_subjects(subjects_path)
 
 ```
 
@@ -239,7 +308,6 @@ plot_proj <- function(Factor){
 sapply(c("Diagnosis","Response","Trauma","GAD","Session"), function(x) plot_proj(x), simplify = FALSE)
 ```
 
-
 ```{r plot reconstructed data}
 library(ggplot2)
 library(reshape2)
@@ -312,7 +380,6 @@ sapply(1:10, function(x) plot_reco(x, "Response"), simplify = FALSE)
 sapply(1:10, function(x) plot_reco(x, "GAD"), simplify = FALSE)
 
 ```
-
 
 ```{r look at the how do ICs load on Cloningers }
 library(ggplot2)
@@ -411,9 +478,32 @@ scores_mdd = py$scores_mdd
 projections_mdd = py$projections_mdd
 sources_mdd = py$sources_mdd
 
+#prepare data
+projections_mdd$Diagnosis[projections_mdd$Diagnosis=="NA"]=NA
+projections_mdd[,9:ncol(projections_mdd)] = as.data.frame(apply(projections_mdd[,9:ncol(projections_mdd)], 2, as.numeric))
+projections_mdd[,1:8] = as.data.frame(apply(projections_mdd[,1:8], 2, as.factor))
 
+projections_all = projections_all[projections_all$ID %in% projections_mdd$ID,]
+projections_all$Diagnosis[projections_all$Diagnosis=="NA"]=NA
+projections_all[,9:ncol(projections_all)] = as.data.frame(apply(projections_all[,9:ncol(projections_all)], 2, as.numeric))
+projections_all[,1:8] = as.data.frame(apply(projections_all[,1:8], 2, as.factor))
+
+CorProj = cor(projections_all[,9:ncol(projections_all)], projections_mdd[,9:ncol(projections_mdd)])
+CorProj[CorProj<0.7] = 0
+print(CorProj)
+
+CorSource = list()
+for (i in 1:ncol(sources_all)){
+  Cors = sapply(1:nrow(sources_mdd), function(x) cor.test(as.numeric(abs(sources_all[i,][as.numeric(sources_all[i,])>as.numeric(quantile(sources_all[i,],0.5))])), as.numeric(abs(sources_mdd[x,][as.numeric(sources_all[i,])>as.numeric(quantile(sources_all[i,],0.5))])), method = "spearman")$estimate)
+  CorSource = append(CorSource,as.vector(Cors))
+}
+
+CorSourceMat = matrix(CorSource, nrow = 15)
+CorSourceMat[CorSourceMat<0.2&CorSourceMat>-0.2]=0
+CorSourceMat[1:13,1:13]
+sources_all[1,]
+cor(sources_all,sources_mdd)
 ```
-
 
 ```{r trials}
 IC_num = 2
@@ -462,8 +552,11 @@ pairs(df[,9:ncol(df)], col=as.factor(df$MDD))
 #Not cool
 ```
 
-
 ```{r plot the question loadings and how much they load on each question}
+library(Hmisc)
+library(reshape2)
+library(corrplot)
+
 data_tpq_all = py$data_tpq_all
 data_reco_all = py$data_reco_all
 scores_all = py$scores_all
@@ -505,15 +598,20 @@ fig_loading = ggplot(inc_loadings_melt, aes(x= Question, y = ID))+
     scale_fill_gradient2(high="#CC0000", low="#08457E", mid = "white", midpoint = 0, limits = c(-1,1)) +
     ggtitle(label = "Final Scores for All Subjects", subtitle = "For the 5 Groups of Subjects")
 
-
 corrplot(cor(data_reco_all[[1]][,9:108]))
-corrplot(cor(t(data_reco_all[[1]][,9:108])))
+
 corrplot(cor(cbind(data_reco_all[[1]][,9:108],data_reco_all[[3]][,9:108])))
 
 corrplot(cor(cbind(data_reco_all_fast[[1]][,9:108],data_reco_all[[2]][,9:108])))
 # All questions inside each IC, and questions of different ICs are very highly correlated
 
+# do the correlation on the subjects
+df_1_t = t(data_reco_all[[1]][,9:108])
+df_2_t = t(data_reco_all[[2]][,9:108])
+df_3_t = t(data_reco_all[[3]][,9:108])
 
+corrplot(cor(cbind(df_1_t[,1:150],df_2_t[,1:150],df_3_t[,1:150])))
+# very good, no correlation between different ICs
 ```
 
 ```{r compare different IC methods}
@@ -636,123 +734,132 @@ gs_fastsk = sapply(1:length(data_list_3), function(x) plot_IC_single(x,Factor,da
 
 multiplot(gs_infomax, Listing = TRUE, cols = 3)
 
+
+#Now try to find the difference if we include a random variable
+# I will make the factor inside Session, just to preserve its order
+IC_num = 1
+Factor = "Session"
+data_frame_4_text = "Infomax"
+data_list_4 = data_reco_all
+for (i in 1:length(data_list_4)){
+  data_list_4[[i]]$Session=factor(paste0("G",c(rep(c(1,2,3,4,5), 364),1,2)))
+}
+
+gs_fast = sapply(1:length(data_list_4[1:3]), function(x) plot_IC_single(x,Factor,data_list_4[[x]], data_frame_4_text))
+multiplot(gs_fast, Listing = TRUE, cols = 3)
+
+
 ```
 
 
-```{r understand ICA}
-data_tpq_mdd = py$data_tpq_mdd
-data_reco_mdd = py$data_reco_mdd
-scores_mdd = py$scores_mdd
-projections_mdd = py$projections_mdd
-sources_mdd = py$sources_mdd
+```{r Check subject groups and question groups that contribute to each IC}
+library(reshape2)
+projections_all = py$projections_all
+sources_all = py$sources_all
 
-# I assume that reconstruction can be calculated as follows:
-# original_df x single source (a matrix)
-SS = as.vector(as.matrix(sources_mdd[1,]))
-SS = matrix(c(SS,rep(0,9900)), ncol = 100, byrow = TRUE)
+Factor = "Diagnosis"
 
-XX = as.matrix(data_tpq_mdd[,9:108])
-XX%*%SS
+# convert projections to numeric
+ic_count = ncol(projections_all)-8
+projections_all[,9:ncol(projections_all)] = as.data.frame(apply(projections_all[,9:ncol(projections_all)],2,as.numeric))
+projections_all[,1:8] = as.data.frame(apply(projections_all[,1:8],2,as.factor))
+projections_all[,1:8][projections_all[,1:8] == "NA"] = NA
+projections_melted = melt(projections_all, id.vars = c("ID",Factor), measure.vars = paste0("IC",1:ic_count), value.name = "Projection", variable.name = "IC")
 
+projections_means = SMeans(projections_melted, "Projection", c("IC",Factor), GroupBy = Factor)
+#projections_means$Projection = abs(projections_means$Projection)
+projections_means$IC = factor(projections_means$IC, levels = paste0("IC",1:nlevels(projections_melted$IC)))
+for (IC in paste0("IC",1:nlevels(projections_means$IC))){
+  projections_means$Max[projections_means$IC==IC] = max(projections_means$Projection[projections_means$IC==IC])
+}
+projections_means$Max_group = ifelse(projections_means$Max == projections_means$Projection,"*","")
+
+# calculate the difference for each one
+for (IC in paste0("IC",1:nlevels(projections_means$IC))){
+  for (lvl in levels(factor(projections_means[[Factor]]))){
+    projections_means$Difference[projections_means$IC==IC&projections_means[[Factor]]==lvl] = sum(abs(projections_means$Projection[projections_means$IC==IC&projections_means[[Factor]]==lvl] - projections_means$Projection[projections_means$IC==IC&projections_means[[Factor]]!=lvl]))
+  }
+}
+
+# find the largest difference
+for (IC in paste0("IC",1:nlevels(projections_means$IC))){
+  projections_means$MDif[projections_means$IC==IC] = max(projections_means$Difference[projections_means$IC==IC])
+}
+
+projections_means$RDif = round(projections_means$Difference/projections_means$MDif,2)
+projections_means$RDif_text = paste(projections_means[[Factor]]," = ",projections_means$RDif)
+
+# delete those with less than 0.5 difference
+projections_means$RDif_text[projections_means$RDif<0.75] = ""
+projections_means$Inclusion = ifelse(projections_means$RDif>0.75,"*","")
+
+g1 = ggplot(projections_means, aes(x=Groups, y=Projection, group = Groups, fill = Groups))+
+  geom_bar(stat="identity", color = "black")+
+  geom_errorbar(aes(ymin = Projection-SEM,ymax = Projection+SEM), width = 0.15)+
+  facet_grid(~IC)+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  TypicalTheme+
+  geom_text(aes(y = ifelse(projections_means$Projection>0,projections_means$Projection+0.007,projections_means$Projection-0.007),color = Groups, label=Max_group),size =15)+
+  scale_color_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("Absolute Values for IC Projections for 5 Groups of Subjects", subtitle = "Stars indicate groups with largest differences")
+
+ggplot(projections_melted, aes(x = ID, y=Projection, group = Diagnosis,color = Diagnosis))+
+  geom_point()+
+  facet_wrap(~IC)
 ```
-```{python ICA trial}
-import numpy as np
-np.random.seed(0)
-from scipy import signal
-from scipy.io import wavfile
-from matplotlib import pyplot as plt
-import seaborn as sns
-sns.set(rc={'figure.figsize':(11.7,8.27)})
 
-def g(x):
-    return np.tanh(x)
-def g_der(x):
-    return 1 - g(x) * g(x)
+```{r Check questions that contribute to each IC}
+library(reshape2)
+sources_all = py$sources_all
 
-
-def center(X):
-    X = np.array(X)
-    mean = X.mean(axis=1, keepdims=True)
-    return X - mean
-
-def whitening(X):
-    cov = np.cov(X)
-    d, E = np.linalg.eigh(cov)
-    D = np.diag(d)
-    D_inv = np.sqrt(np.linalg.inv(D))
-    X_whiten = np.dot(E, np.dot(D_inv, np.dot(E.T, X)))
-    return X_whiten
-
-def calculate_new_w(w, X):
-    w_new = (X * g(np.dot(w.T, X))).mean(axis=1) - g_der(np.dot(w.T, X)).mean() * w
-    w_new /= np.sqrt((w_new ** 2).sum())
-    return w_new
+# convert projections to numeric
+ic_count = nrow(sources_all)
+sources_all$IC = paste0("IC",1:ic_count)
+sources_melted = melt(sources_all, id.vars = "IC", measure.vars = paste0("Q",1:100), value.name = "Source", variable.name = "Question")
+ggplot(sources_melted, aes(x= Question, y= Source, group = IC))+
+  geom_line()+
+  facet_wrap(~IC)
 
 
-def ica(X, iterations, tolerance=1e-5):
-    X = center(X)
-    X = whitening(X)
-    components_nr = X.shape[0]
-    W = np.zeros((components_nr, components_nr), dtype=X.dtype)
-    for i in range(components_nr):
-        w = np.random.rand(components_nr)
-        for j in range(iterations):
-            w_new = calculate_new_w(w, X)
-            if i >= 1:
-                w_new -= np.dot(np.dot(w_new, W[:i].T), W[:i])
-            distance = np.abs(np.abs((w * w_new).sum()) - 1)
-            w = w_new
-            if distance < tolerance:
-                break
-        W[i, :] = w
-    S = np.dot(W, X)
-    return S
 
-def plot_mixture_sources_predictions(X, original_sources, S):
-    fig = plt.figure()
-    plt.subplot(3, 1, 1)
-    for x in X:
-        plt.plot(x)
-    plt.title("mixtures")
-    plt.subplot(3, 1, 2)
-    for s in original_sources:
-        plt.plot(s)
-    plt.title("real sources")
-    plt.subplot(3,1,3)
-    for s in S:
-        plt.plot(s)
-    plt.title("predicted sources")
+sources_means = SMeans(sources_melted, "Source", "Question", GroupBy = "Question")
+sources_means$Projection = abs(sources_means$Projection)
+sources_means$IC = factor(sources_means$IC, levels = paste0("IC",1:nlevels(sources_melted$IC)))
+for (IC in paste0("IC",1:nlevels(sources_means$IC))){
+  sources_means$Max[sources_means$IC==IC] = max(sources_means$Projection[sources_means$IC==IC])
+}
+sources_means$Max_group = ifelse(sources_means$Max == sources_means$Projection,"*","")
 
-    fig.tight_layout()
-    plt.show()
+# calculate the difference for each one
+for (IC in paste0("IC",1:nlevels(sources_means$IC))){
+  for (lvl in levels(factor(sources_means[[Factor]]))){
+    sources_means$Difference[sources_means$IC==IC&sources_means[[Factor]]==lvl] = sum(abs(sources_means$Projection[sources_means$IC==IC&sources_means[[Factor]]==lvl] - sources_means$Projection[sources_means$IC==IC&sources_means[[Factor]]!=lvl]))
+  }
+}
+
+# find the largest difference
+for (IC in paste0("IC",1:nlevels(sources_means$IC))){
+  sources_means$MDif[sources_means$IC==IC] = max(sources_means$Difference[sources_means$IC==IC])
+}
+
+sources_means$RDif = round(sources_means$Difference/sources_means$MDif,2)
+sources_means$RDif_text = paste(sources_means[[Factor]]," = ",sources_means$RDif)
+
+# delete those with less than 0.5 difference
+sources_means$RDif_text[sources_means$RDif<0.75] = ""
+sources_means$Inclusion = ifelse(sources_means$RDif>0.75,"*","")
+
+g1 = ggplot(sources_means, aes(x=Groups, y=Projection, group = Groups, fill = Groups))+
+  geom_bar(stat="identity", color = "black")+
+  geom_errorbar(aes(ymin = Projection-SEM,ymax = Projection+SEM), width = 0.15)+
+  facet_grid(~IC)+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  TypicalTheme+
+  geom_text(aes(y = ifelse(sources_means$Projection>0,sources_means$Projection+0.007,sources_means$Projection-0.007),color = Groups, label=Max_group),size =15)+
+  scale_color_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("Absolute Values for IC Sources for 5 Groups of Subjects", subtitle = "Stars indicate groups with largest differences")
 
 
-def mix_sources(mixtures, apply_noise=False):
-    for i in range(len(mixtures)):
-        max_val = np.max(mixtures[i])
-        if max_val > 1 or np.min(mixtures[i]) < 1:
-            mixtures[i] = mixtures[i] / (max_val / 2) - 0.5
-    X = np.c_[[mix for mix in mixtures]]
-    if apply_noise:
-        X += 0.02 * np.random.normal(size=X.shape)
-    return X
-
-n_samples = 2000
-time = np.linspace(0, 8, n_samples)
-s1 = np.sin(2 * time)  # sinusoidal
-s2 = np.sign(np.sin(3 * time))  # square signal
-s3 = signal.sawtooth(2 * np.pi * time)  # saw tooth signal
-
-X = np.c_[s1, s2, s3]
-A = np.array(([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]]))
-X = np.dot(X, A.T)
-X = X.T
-S = ica(X, iterations=1000)
-```
-```{r ICA trial}
-py$S
-CC = cor(py$S)
-corrplot(CC[,1:200])
 ```
 
 ```{r T and F percentage for all questions (Mohammd Binomiality)}

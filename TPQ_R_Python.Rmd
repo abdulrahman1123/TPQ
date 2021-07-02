@@ -625,7 +625,7 @@ d_bi$IC_data_num = rep(1:14,3)
 
 ggplot(data = d_bi, mapping = aes(x = IC_data_num, y=value, group = variable, fill=variable))+
   geom_bar(stat = "identity",position = position_dodge(0.9),color = "black")+
-  scale_y_continuous(name = "Number of Binomial Questions")+
+  scale_y_continuous(name = "Number` of Binomial Questions")+
   scale_x_continuous(name = "IC #")+
   scale_fill_manual(values = c("#Eb4C42","#4EA3DF","#6cBE58"))+
   ggtitle("Binomial Question Count in all ICs in all IC Methods")+
