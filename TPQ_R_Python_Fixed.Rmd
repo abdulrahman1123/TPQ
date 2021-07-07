@@ -12,8 +12,8 @@ library(reticulate)
 if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/")){
   use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python3")
 }else{
-  #("/home/asawalma/anaconda3/envs/mne/bin/python3")
-  use_python("/home/asawalma/anaconda3/bin/python")
+  use_python("/home/asawalma/anaconda3/envs/mne/bin/python3")
+  #use_python("/home/asawalma/anaconda3/bin/python")
 }
 
 ```
@@ -188,6 +188,144 @@ def prepare_icasso_subjects(npz_sub_path):
 #Now we add the subjects decomposition
 subjects_path = path + "/../../Subject_DataAnalysis/HC,MDD,PTSD,TNP,GAD/n_comp13/icasso_ICA-subjects_HC,MDD,PTSD,TNP,GAD_nsamp100_n_comp13_n_iter100_dist0.40_MNEinfomax.npz"
 subjects_tpq_all, subjects_reco_all, subjects_all,subjects_all,subjects_all = prepare_icasso_subjects(subjects_path)
+
+```
+
+```{python trial to calculate reconstructed data from Jurgen}
+import os
+import numpy as np
+import pandas as pd
+
+path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO_fixed/decomp_tpq'
+if not os.path.exists(path):
+    path = path.replace("/abdulrahman/abdulrahman.sawalma@gmail.com",
+                        "/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
+
+# New code from Juergen to reconstruc the data
+npz_sub_path = path + '/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz'
+results_path = npz_sub_path.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects",
+                                                                                        "icasso-results_ICA-subjects")
+
+npz_sub = np.load(npz_sub_path, allow_pickle=True)
+npz_results = np.load(results_path, allow_pickle=True)
+
+icasso = npz_sub['icasso'].item()
+data_tpq = npz_sub['data_tpq']
+unmixing = icasso.get_centrotype_unmixing()# of shape: [n_cluster, n_chan]
+
+#2) limit the sources to the number of components
+n_comp = 10
+sources = npz_results['sources']
+sources = sources[:n_comp]
+unmixing = unmixing[:n_comp]
+
+
+#3) apply threshold to sources
+threshold = np.percentile(abs(sources),25)
+picks = np.abs(sources) < threshold
+sources[picks] = 0
+
+#4) apply back-tranformation for each source separately
+idx_keep = np.arange(unmixing.shape[0])
+data_reco_arr = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+for i, ix in enumerate(idx_keep):
+    print ('>>> reconstruction of component %d' % (i+1))
+    data_reco = np.transpose(icasso.ica2data(sources, unmixing, idx_keep=ix))
+    data_reco_arr[i] = data_reco  
+    
+data_reco_arr = [pd.DataFrame(item) for item in data_reco_arr]
+
+```
+
+```{python to make sure I understand ICA reconstruction, I will use my own code}
+
+# The way MNE calculates sources is as follows:
+# 1- apply pre_whitening (the sd of the whole data)
+# 2- remove the pca_mean (the means of the channels)
+# 3- compute pca_data by applying the dot product for unmixing_matrix by pca_components
+# 4- compute the sources by applying the dot product of pca_data by original_data
+# Note: this means that the final SD is not 1. Which is somewhat weird. However, in our case
+#       there was one subject who answered all answers with yes
+
+# 1) extract the sources and the unmixing matrix from the numpy file
+path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO_fixed/decomp_tpq'
+if not os.path.exists(path):
+    path = path.replace("/abdulrahman/abdulrahman.sawalma@gmail.com",
+                        "/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
+
+# New code from Juergen to reconstruc the data
+npz_sub_path = path + '/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz'
+results_path = npz_sub_path.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects",
+                                                                                        "icasso-results_ICA-subjects")
+
+npz_sub = np.load(npz_sub_path, allow_pickle=True)
+npz_results = np.load(results_path, allow_pickle=True)
+
+icasso = npz_sub['icasso'].item()
+data_tpq = npz_sub['data_tpq']
+mixing = npz_sub["mixing"]  # or it is the pseudoinverse of the unmixing matrix np.linalg.pinv(npz_sub["unmixing"])
+
+# 2) limit the sources to the number of components
+n_comp = 10
+data_reco_current_all = [pd.DataFrame(npz_results["data_reco"][i]) for i in range(n_comp)]
+sources = npz_results['sources']
+sources = sources[:n_comp]
+mixing = mixing[:,:n_comp]
+
+
+# 3) apply threshold to sources
+threshold = np.percentile(abs(sources), 25)
+picks = np.abs(sources) < threshold
+sources[picks] = 0
+
+# 4) calculate the mean and sd of the original data. These are the values used to centering the data for PCA
+# First, make a copy of the data so that you do not affect the original one
+tpq_transient = data_tpq.copy()
+
+# calculate the standard deviation of the whole dataset, and convert that to an array of shape (n_channels, 1)
+# Add [:,None] to make the data into the shape of (n_channels, 1)
+or_sd = np.array(mixing.shape[0] * [np.std(tpq_transient)])[:, None]
+
+# apply sd, and take the mean of the resulting data frame
+tpq_transient /= or_sd
+
+# find the mean
+or_mean = np.average(tpq_transient, axis=1)[:, None]
+
+# 5) apply back-tranformation for each source separately
+idx_keep = np.arange(mixing.shape[1])
+data_reco_arr_abd = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+
+
+for i, ix in enumerate(idx_keep):
+    print ('>>> reconstruction of component %d' % (i+1))
+    new_mixing = np.zeros([mixing.shape[0],mixing.shape[1]])
+    new_mixing[:,i] = mixing[:,i]
+    data_reco = np.dot(sources.T, new_mixing.T)
+    data_reco = ((data_reco.T+ or_mean)*or_sd).T
+    data_reco_arr_abd[i] = np.transpose(data_reco)
+
+data_reco_arr_abd = [pd.DataFrame(item) for item in data_reco_arr_abd]
+
+```
+
+```{r rconstructing data test}
+options("scipen"=100, "digits"=4)
+
+for (i in 1:length(data_reco_all)){
+  data_reco_all[[i]] = as.data.frame(apply(py$data_reco_all[[i]][,9:108],2,as.numeric))
+}
+
+data_reco_arr = py$data_reco_arr
+data_reco_arr_abd = py$data_reco_arr_abd
+
+mean(apply(abs(data_reco_all[[10]] - data_reco_arr_abd[[10]]),2,mean))
+mean(apply(abs(data_reco_all[[10]] - data_reco_arr[[10]]),2,mean))
+
+data_reco_arr[[10]]
+data_reco_all[[10]]
+cor(data_reco_arr[[10]])
+
 
 ```
 
@@ -506,9 +644,43 @@ cor(sources_all,sources_mdd)
 ```
 
 ```{r trials}
+library (ppcor)
+library(readxl)
+library(reshape2)
+library(ggplot2)
+library(dplyr)
+library(Hmisc)
+library(corrplot)
+library(abind)
+
+data_tpq_all = py$data_tpq_all
+data_reco_all = py$data_reco_all
+scores_all = py$scores_all
+projections_all = py$projections_all
+sources_all = py$sources_all
+
+q_data = data.frame(ifelse(abs(sources_all) > apply(abs(sources_all),2,quantile,0.75),10,NA))
+q_data$IC = paste0("IC",1:nrow(q_data))
+q_data$IC = factor(q_data$IC, levels = paste0("IC",1:nrow(q_data)))
+
+data_tpq_all$Diagnosis[data_tpq_all$Diagnosis=="NA"] = NA
+data_tpq_all$Trauma[data_tpq_all$Trauma=="NA"] = NA
+data_tpq_all$GAD[data_tpq_all$GAD=="NA"] = NA
+data_tpq_all$Response[data_tpq_all$Response=="NA"] = NA
+data_tpq_all$PTSD[data_tpq_all$PTSD=="NA"] = NA
+data_tpq_all$MDD[data_tpq_all$MDD=="NA"] = NA
+
+data_tpq_all$Diagnosis = factor(data_tpq_all$Diagnosis)
+data_tpq_all$Trauma = factor(data_tpq_all$Trauma)
+data_tpq_all$GAD = factor(data_tpq_all$GAD)
+data_tpq_all$Response = factor(data_tpq_all$Response)
+data_tpq_all$PTSD = factor(data_tpq_all$PTSD)
+data_tpq_all$MDD = factor(data_tpq_all$MDD)
+
 IC_num = 2
-Factor = "Trauma"
+Factor = "MDD"
 df = data_reco_all[[IC_num]]
+
 
 IC_txt = paste0("IC",IC_num)
 inc_questions = as.character(q_data_melted$Question[q_data_melted$IC == IC_txt&!is.na(q_data_melted$Included)])
@@ -524,7 +696,7 @@ for (item in c("Diagnosis","Trauma","GAD","Response","PTSD","MDD")){
 }
 
 
-#Do the MDD alone
+#Do the one factor alone
 df[[Factor]][df[[Factor]] == "No"]=0
 df[[Factor]][df[[Factor]] == "Yes"]=1
 df[[Factor]] = as.factor(df[[Factor]])
@@ -541,7 +713,7 @@ summary(Model)
 summary(Model2)
 
 LogisticFunction(Model)
-LogisticFunction(Model2, plt_type="histogram")
+LogisticFunction(Model2, plt_type="glm")
 
 # Apparently, most variables are correlated with each other
 # lets check this
@@ -715,7 +887,7 @@ plot_IC_single <- function(IC_num,Factor, df_1, data_frame_1_text){
 }
 
 IC_num = 1
-Factor = "PTSD"
+Factor = "Trauma"
 data_frame_1_text = "Infomax"
 data_frame_2_text = "FastICA"
 data_frame_3_text = "FastICA_sklearn"
@@ -746,11 +918,10 @@ for (i in 1:length(data_list_4)){
 }
 
 gs_fast = sapply(1:length(data_list_4[1:3]), function(x) plot_IC_single(x,Factor,data_list_4[[x]], data_frame_4_text))
-multiplot(gs_fast, Listing = TRUE, cols = 3)
+multiplot(gs_infomax, Listing = TRUE, cols = 3)
 
 
 ```
-
 
 ```{r Check subject groups and question groups that contribute to each IC}
 library(reshape2)
@@ -764,10 +935,12 @@ ic_count = ncol(projections_all)-8
 projections_all[,9:ncol(projections_all)] = as.data.frame(apply(projections_all[,9:ncol(projections_all)],2,as.numeric))
 projections_all[,1:8] = as.data.frame(apply(projections_all[,1:8],2,as.factor))
 projections_all[,1:8][projections_all[,1:8] == "NA"] = NA
+projections_all$ID = factor(projections_all$ID, levels = projections_all$ID)
 projections_melted = melt(projections_all, id.vars = c("ID",Factor), measure.vars = paste0("IC",1:ic_count), value.name = "Projection", variable.name = "IC")
 
+
 projections_means = SMeans(projections_melted, "Projection", c("IC",Factor), GroupBy = Factor)
-#projections_means$Projection = abs(projections_means$Projection)
+projections_means$Projection = abs(projections_means$Projection)
 projections_means$IC = factor(projections_means$IC, levels = paste0("IC",1:nlevels(projections_melted$IC)))
 for (IC in paste0("IC",1:nlevels(projections_means$IC))){
   projections_means$Max[projections_means$IC==IC] = max(projections_means$Projection[projections_means$IC==IC])
@@ -806,60 +979,6 @@ g1 = ggplot(projections_means, aes(x=Groups, y=Projection, group = Groups, fill 
 ggplot(projections_melted, aes(x = ID, y=Projection, group = Diagnosis,color = Diagnosis))+
   geom_point()+
   facet_wrap(~IC)
-```
-
-```{r Check questions that contribute to each IC}
-library(reshape2)
-sources_all = py$sources_all
-
-# convert projections to numeric
-ic_count = nrow(sources_all)
-sources_all$IC = paste0("IC",1:ic_count)
-sources_melted = melt(sources_all, id.vars = "IC", measure.vars = paste0("Q",1:100), value.name = "Source", variable.name = "Question")
-ggplot(sources_melted, aes(x= Question, y= Source, group = IC))+
-  geom_line()+
-  facet_wrap(~IC)
-
-
-
-sources_means = SMeans(sources_melted, "Source", "Question", GroupBy = "Question")
-sources_means$Projection = abs(sources_means$Projection)
-sources_means$IC = factor(sources_means$IC, levels = paste0("IC",1:nlevels(sources_melted$IC)))
-for (IC in paste0("IC",1:nlevels(sources_means$IC))){
-  sources_means$Max[sources_means$IC==IC] = max(sources_means$Projection[sources_means$IC==IC])
-}
-sources_means$Max_group = ifelse(sources_means$Max == sources_means$Projection,"*","")
-
-# calculate the difference for each one
-for (IC in paste0("IC",1:nlevels(sources_means$IC))){
-  for (lvl in levels(factor(sources_means[[Factor]]))){
-    sources_means$Difference[sources_means$IC==IC&sources_means[[Factor]]==lvl] = sum(abs(sources_means$Projection[sources_means$IC==IC&sources_means[[Factor]]==lvl] - sources_means$Projection[sources_means$IC==IC&sources_means[[Factor]]!=lvl]))
-  }
-}
-
-# find the largest difference
-for (IC in paste0("IC",1:nlevels(sources_means$IC))){
-  sources_means$MDif[sources_means$IC==IC] = max(sources_means$Difference[sources_means$IC==IC])
-}
-
-sources_means$RDif = round(sources_means$Difference/sources_means$MDif,2)
-sources_means$RDif_text = paste(sources_means[[Factor]]," = ",sources_means$RDif)
-
-# delete those with less than 0.5 difference
-sources_means$RDif_text[sources_means$RDif<0.75] = ""
-sources_means$Inclusion = ifelse(sources_means$RDif>0.75,"*","")
-
-g1 = ggplot(sources_means, aes(x=Groups, y=Projection, group = Groups, fill = Groups))+
-  geom_bar(stat="identity", color = "black")+
-  geom_errorbar(aes(ymin = Projection-SEM,ymax = Projection+SEM), width = 0.15)+
-  facet_grid(~IC)+
-  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
-  TypicalTheme+
-  geom_text(aes(y = ifelse(sources_means$Projection>0,sources_means$Projection+0.007,sources_means$Projection-0.007),color = Groups, label=Max_group),size =15)+
-  scale_color_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
-  ggtitle("Absolute Values for IC Sources for 5 Groups of Subjects", subtitle = "Stars indicate groups with largest differences")
-
-
 ```
 
 ```{r T and F percentage for all questions (Mohammd Binomiality)}
@@ -936,4 +1055,101 @@ perc = ggplot(AllData,aes(x=Question, y=Perc_Percentage, group = Group, fill = G
   theme(axis.text.x = element_text(angle = 90))
 
 multiplot(norm,perc)
+```
+
+```{r create a new projection df (from the separate group data_reco and projections) and compare this to the ones obtained from the combianed ICA data frames}
+library(reshape2)
+
+prepare_data <- function(local_df){
+  # A function to prepare projections data frames
+  # 1. remove NAs
+  for (i in 1:8){
+    local_df[,i][local_df[,i]=="NA"]=NA
+  }
+  
+  # 2. convert the first 8 columns into factors and the rest into doubles
+  local_df[,9:ncol(local_df)] = as.data.frame(apply(local_df[,9:ncol(local_df)],2,as.numeric))
+  local_df[,2:8] = as.data.frame(apply(local_df[,2:8],2,as.factor))
+  local_df[,1] = factor(local_df[,1], levels = local_df[,1])
+  
+  return (local_df)
+}
+
+
+#data_reco_all = lapply(py$data_reco_all,prepare_data)
+projections_all = prepare_data(py$projections_all)
+projections_gad = prepare_data(py$projections_gad)
+projections_hc = prepare_data(py$projections_hc)
+projections_mdd = prepare_data(py$projections_mdd)
+projections_ptsd = prepare_data(py$projections_ptsd)
+projections_tnp = prepare_data(py$projections_tnp)
+
+
+projections_grouped = split(projections_all,projections_all$Diagnosis)
+
+
+calc_proj_mat <- function(df_group, Factor, max_components=NA){
+  df_all = projections_all
+  
+  # make sure both data frameshave the same subjects, and choose the IC columns
+  df_all = df_all[df_all$ID %in%df_group$ID,]
+  df_group = df_group[df_group$ID %in%df_all$ID,]
+  
+  df_all = df_all[,9:ncol(df_all)]
+  df_group = df_group[,9:ncol(df_group)]
+  if (!is.na(max_components)){
+    df_all = df_all[,1:max_components]
+    df_group = df_group[,1:max_components]
+  }
+  
+  # prepare the matrix and its dimnames
+  CorProj = matrix(0,nrow = ncol(df_all), ncol = ncol(df_group))
+  dimnames(CorProj) = list(colnames(df_all),colnames(df_group))
+  names(dimnames(CorProj)) = c("All",Factor)
+  
+  for (i in 1:ncol(df_all)){
+    p_threshold = 0.05/ncol(df_group) # divide the threshold on the number of comparisons per IC
+    p_values = sapply(1:ncol(df_group),function(x) cor.test(df_all[,i],df_group[,x],method = "spearman")$p.value)<p_threshold
+    estimates = sapply(1:ncol(df_group),function(x) cor.test(df_all[,i],df_group[,x],method = "spearman")$estimate)
+    estimates = round(estimates,2)
+    
+    # add a star (*) next to significant values
+    estimates = ifelse(p_values,estimates,0)
+    CorProj[i,] = estimates
+  }
+  return (CorProj)
+}
+
+
+GAD_proj_mat = calc_proj_mat(projections_gad, "GAD", max_components = 10)
+MDD_proj_mat = calc_proj_mat(projections_mdd, "MDD", max_components = 10)
+HC_proj_mat = calc_proj_mat(projections_hc, "HC", max_components = 10)
+PTSD_proj_mat = calc_proj_mat(projections_ptsd, "PTSD", max_components = 10)
+TNP_proj_mat = calc_proj_mat(projections_tnp, "Trauma", max_components = 10)
+
+cor_th = 0.7
+GAD_proj_mat[abs(GAD_proj_mat)<cor_th]=0
+MDD_proj_mat[abs(MDD_proj_mat)<cor_th]=0
+HC_proj_mat[abs(HC_proj_mat)<cor_th]=0
+PTSD_proj_mat[abs(PTSD_proj_mat)<cor_th]=0
+TNP_proj_mat[abs(TNP_proj_mat)<cor_th]=0
+
+GAD_ICs = rownames(GAD_proj_mat)[apply(abs(GAD_proj_mat),1,max)>0.7]
+MDD_ICs = rownames(MDD_proj_mat)[apply(abs(MDD_proj_mat),1,max)>0.9]
+HC_ICs = rownames(HC_proj_mat)[apply(abs(HC_proj_mat),1,max)>0.9]
+PTSD_ICs = rownames(PTSD_proj_mat)[apply(abs(PTSD_proj_mat),1,max)>0.6]
+TNP_ICs = rownames(TNP_proj_mat)[apply(abs(TNP_proj_mat),1,max)>0.7]
+
+CorProj = as.matrix(cor(df_all,df_group))
+CorProj[abs(CorProj)<0.6] = 0
+print(CorProj)
+
+CorSource = list()
+for (i in 1:ncol(sources_all)){
+  Cors = sapply(1:nrow(df_all), function(x) cor.test(as.numeric(abs(sources_all[i,][as.numeric(sources_all[i,])>as.numeric(quantile(sources_all[i,],0.5))])), as.numeric(abs(sources_mdd[x,][as.numeric(sources_all[i,])>as.numeric(quantile(sources_all[i,],0.5))])), method = "spearman")$estimate)
+  CorSource = append(CorSource,as.vector(Cors))
+}
+
+
+
 ```
