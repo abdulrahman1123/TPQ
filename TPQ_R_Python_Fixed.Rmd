@@ -309,6 +309,136 @@ data_reco_arr_abd = [pd.DataFrame(item) for item in data_reco_arr_abd]
 
 ```
 
+```{python same as before, but I will use different sources per data frame}
+
+# The way MNE calculates sources is as follows:
+# 1- apply pre_whitening (the sd of the whole data)
+# 2- remove the pca_mean (the means of the channels)
+# 3- compute pca_data by applying the dot product for unmixing_matrix by pca_components
+# 4- compute the sources by applying the dot product of pca_data by original_data
+# Note: this means that the final SD is not 1. Which is somewhat weird. However, in our case
+#       there was one subject who answered all answers with yes
+
+# 1) extract the sources and the unmixing matrix from the numpy file
+path = '/home/abdulrahman/abdulrahman.sawalma@gmail.com/PhD/Data/Palestine/ICASSO_fixed/decomp_tpq'
+if not os.path.exists(path):
+    path = path.replace("/abdulrahman/abdulrahman.sawalma@gmail.com",
+                        "/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
+
+# New code from Juergen to reconstruc the data
+npz_sub_path_all = path + '/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz'
+results_path_all = npz_sub_path_all.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects",
+                                                                                        "icasso-results_ICA-subjects")
+                                                                                        
+npz_sub_all = np.load(npz_sub_path_all, allow_pickle=True)
+npz_results_all = np.load(results_path_all, allow_pickle=True)
+
+icasso = npz_sub_all['icasso'].item()
+data_tpq = npz_sub_all['data_tpq']
+mixing = npz_sub_all["mixing"]  # or it is the pseudoinverse of the unmixing matrix np.linalg.pinv(npz_sub_all["unmixing"])
+
+npz_sub_path_hc = path+ "/HC/icasso_ICA-tpq_HC_nsamp1202_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+npz_sub_path_mdd = path+ "/MDD/icasso_ICA-tpq_MDD_nsamp455_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+npz_sub_path_gad = path+ "/GAD/icasso_ICA-tpq_GAD_nsamp30_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+npz_sub_path_ptsd = path+ "/PTSD/icasso_ICA-tpq_PTSD_nsamp57_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+npz_sub_path_tnp = path+ "/TNP/icasso_ICA-tpq_TNP_nsamp78_n_comp13_n_iter100_dist0.30_MNEinfomax.npz"
+
+results_path_hc = npz_sub_path_hc.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects","icasso-results_ICA-subjects")
+results_path_mdd = npz_sub_path_mdd.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects","icasso-results_ICA-subjects")
+results_path_gad = npz_sub_path_gad.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects","icasso-results_ICA-subjects")
+results_path_ptsd = npz_sub_path_ptsd.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects","icasso-results_ICA-subjects")
+results_path_tnp = npz_sub_path_tnp.replace("icasso_ICA-tpq", "icasso-results_ICA-tpq").replace("icasso_ICA-subjects","icasso-results_ICA-subjects")
+
+npz_sub_hc = np.load(npz_sub_path_hc, allow_pickle=True)
+npz_sub_mdd = np.load(npz_sub_path_mdd, allow_pickle=True)
+npz_sub_gad = np.load(npz_sub_path_gad, allow_pickle=True)
+npz_sub_ptsd = np.load(npz_sub_path_ptsd, allow_pickle=True)
+npz_sub_tnp = np.load(npz_sub_path_tnp, allow_pickle=True)
+
+npz_results_hc = np.load(results_path_hc, allow_pickle=True)
+npz_results_mdd = np.load(results_path_mdd, allow_pickle=True)
+npz_results_gad = np.load(results_path_gad, allow_pickle=True)
+npz_results_ptsd = np.load(results_path_ptsd, allow_pickle=True)
+npz_results_tnp = np.load(results_path_tnp, allow_pickle=True)
+
+# 2) limit the sources to the number of components
+n_comp = 10
+data_reco_current_all = [pd.DataFrame(npz_results_all["data_reco"][i]) for i in range(n_comp)]
+sources_all = npz_results_all['sources']
+sources_hc = npz_results_hc['sources']
+sources_mdd = npz_results_mdd['sources']
+sources_gad = npz_results_gad['sources']
+sources_ptsd = npz_results_ptsd['sources']
+sources_tnp = npz_results_tnp['sources']
+
+sources_all = sources_all[:n_comp]
+sources_hc = sources_hc[:n_comp]
+sources_mdd = sources_mdd[:n_comp]
+sources_gad = sources_gad[:n_comp]
+sources_ptsd = sources_ptsd[:n_comp]
+sources_tnp = sources_tnp[:n_comp]
+
+mixing = mixing[:,:n_comp]
+
+
+# 3) apply threshold to sources
+sources_all[np.abs(sources_all) < np.percentile(abs(sources_all), 25)] = 0
+sources_hc[np.abs(sources_hc) < np.percentile(abs(sources_hc), 25)] = 0
+sources_mdd[np.abs(sources_mdd) < np.percentile(abs(sources_mdd), 25)] = 0
+sources_gad[np.abs(sources_gad) < np.percentile(abs(sources_gad), 25)] = 0
+sources_ptsd[np.abs(sources_ptsd) < np.percentile(abs(sources_ptsd), 25)] = 0
+sources_tnp[np.abs(sources_tnp) < np.percentile(abs(sources_tnp), 25)] = 0
+
+# 4) calculate the mean and sd of the original data. These are the values used to centering the data for PCA
+# First, make a copy of the data so that you do not affect the original one
+tpq_transient = data_tpq.copy()
+
+# calculate the standard deviation of the whole dataset, and convert that to an array of shape (n_channels, 1)
+# Add [:,None] to make the data into the shape of (n_channels, 1)
+or_sd = np.array(mixing.shape[0] * [np.std(tpq_transient)])[:, None]
+
+# apply sd, and take the mean of the resulting data frame
+tpq_transient /= or_sd
+
+# find the mean
+or_mean = np.average(tpq_transient, axis=1)[:, None]
+
+# 5) apply back-tranformation for each source separately
+idx_keep = np.arange(mixing.shape[1])
+data_reco_all_list = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+data_reco_hc_list = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+data_reco_mdd_list = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+data_reco_gad_list = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+data_reco_ptsd_list = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+data_reco_tnp_list = np.zeros([len(idx_keep), data_tpq.shape[0], data_tpq.shape[1]])
+
+for i, ix in enumerate(idx_keep):
+    print ('>>> reconstruction of component %d' % (i+1))
+    new_mixing = np.zeros([mixing.shape[0],mixing.shape[1]])
+    new_mixing[:,i] = mixing[:,i]
+    data_reco_all_local = np.dot(sources_all.T, new_mixing.T).T
+    data_reco_hc_local = np.dot(sources_hc.T, new_mixing.T).T
+    data_reco_mdd_local = np.dot(sources_mdd.T, new_mixing.T).T
+    data_reco_gad_local = np.dot(sources_gad.T, new_mixing.T).T
+    data_reco_ptsd_local = np.dot(sources_ptsd.T, new_mixing.T).T
+    data_reco_tnp_local = np.dot(sources_tnp.T, new_mixing.T).T
+    
+    data_reco_all_list[i] = ((data_reco_all_local+ or_mean)*or_sd)
+    data_reco_hc_list[i] = ((data_reco_hc_local+ or_mean)*or_sd)
+    data_reco_mdd_list[i] = ((data_reco_mdd_local+ or_mean)*or_sd)
+    data_reco_gad_list[i] = ((data_reco_gad_local+ or_mean)*or_sd)
+    data_reco_ptsd_list[i] = ((data_reco_ptsd_local+ or_mean)*or_sd)
+    data_reco_tnp_list[i] = ((data_reco_tnp_local+ or_mean)*or_sd)
+    
+data_reco_all_list = [pd.DataFrame(item) for item in data_reco_all_list]
+data_reco_hc_list = [pd.DataFrame(item) for item in data_reco_hc_list]
+data_reco_mdd_list = [pd.DataFrame(item) for item in data_reco_mdd_list]
+data_reco_gad_list = [pd.DataFrame(item) for item in data_reco_gad_list]
+data_reco_ptsd_list = [pd.DataFrame(item) for item in data_reco_ptsd_list]
+data_reco_tnp_list = [pd.DataFrame(item) for item in data_reco_tnp_list]
+
+```
+
 ```{r rconstructing data test}
 options("scipen"=100, "digits"=4)
 
@@ -1084,6 +1214,12 @@ projections_mdd = prepare_data(py$projections_mdd)
 projections_ptsd = prepare_data(py$projections_ptsd)
 projections_tnp = prepare_data(py$projections_tnp)
 
+sources_all = py$sources_all
+sources_GAD = py$sources_gad
+sources_HC = py$sources_hc
+sources_MDD = py$sources_mdd
+sources_PTSD = py$sources_ptsd
+sources_TNP = py$sources_tnp
 
 projections_grouped = split(projections_all,projections_all$Diagnosis)
 
@@ -1091,9 +1227,9 @@ projections_grouped = split(projections_all,projections_all$Diagnosis)
 calc_proj_mat <- function(df_group, Factor, max_components=NA){
   df_all = projections_all
   
-  # make sure both data frameshave the same subjects, and choose the IC columns
-  df_all = df_all[df_all$ID %in%df_group$ID,]
-  df_group = df_group[df_group$ID %in%df_all$ID,]
+  # make sure both data frames have the same subjects, and choose the IC columns
+  df_all = df_all[df_all$ID %in% df_group$ID,]
+  df_group = df_group[df_group$ID %in% df_all$ID,]
   
   df_all = df_all[,9:ncol(df_all)]
   df_group = df_group[,9:ncol(df_group)]
@@ -1127,29 +1263,270 @@ HC_proj_mat = calc_proj_mat(projections_hc, "HC", max_components = 10)
 PTSD_proj_mat = calc_proj_mat(projections_ptsd, "PTSD", max_components = 10)
 TNP_proj_mat = calc_proj_mat(projections_tnp, "Trauma", max_components = 10)
 
-cor_th = 0.7
+cor_th = 0.6
 GAD_proj_mat[abs(GAD_proj_mat)<cor_th]=0
 MDD_proj_mat[abs(MDD_proj_mat)<cor_th]=0
 HC_proj_mat[abs(HC_proj_mat)<cor_th]=0
 PTSD_proj_mat[abs(PTSD_proj_mat)<cor_th]=0
 TNP_proj_mat[abs(TNP_proj_mat)<cor_th]=0
 
-GAD_ICs = rownames(GAD_proj_mat)[apply(abs(GAD_proj_mat),1,max)>0.7]
-MDD_ICs = rownames(MDD_proj_mat)[apply(abs(MDD_proj_mat),1,max)>0.9]
-HC_ICs = rownames(HC_proj_mat)[apply(abs(HC_proj_mat),1,max)>0.9]
-PTSD_ICs = rownames(PTSD_proj_mat)[apply(abs(PTSD_proj_mat),1,max)>0.6]
-TNP_ICs = rownames(TNP_proj_mat)[apply(abs(TNP_proj_mat),1,max)>0.7]
+GAD_ICs = rownames(GAD_proj_mat)[apply(abs(GAD_proj_mat),1,max)>0]
+MDD_ICs = rownames(MDD_proj_mat)[apply(abs(MDD_proj_mat),1,max)>0]
+HC_ICs = rownames(HC_proj_mat)[apply(abs(HC_proj_mat),1,max)>0]
+PTSD_ICs = rownames(PTSD_proj_mat)[apply(abs(PTSD_proj_mat),1,max)>0]
+TNP_ICs = rownames(TNP_proj_mat)[apply(abs(TNP_proj_mat),1,max)>0]
 
-CorProj = as.matrix(cor(df_all,df_group))
-CorProj[abs(CorProj)<0.6] = 0
-print(CorProj)
+ICs=paste0("IC",1:10)
+IC_groups = data.frame(IC=ICs, GAD = ifelse(ICs%in%GAD_ICs,"GAD",""), HC = ifelse(ICs%in%HC_ICs,"HC",""),
+                       MDD = ifelse(ICs%in%MDD_ICs,"MDD",""), PTSD = ifelse(ICs%in%PTSD_ICs,"PTSD",""),
+                       TNP = ifelse(ICs%in%TNP_ICs,"TNP",""))
 
-CorSource = list()
-for (i in 1:ncol(sources_all)){
-  Cors = sapply(1:nrow(df_all), function(x) cor.test(as.numeric(abs(sources_all[i,][as.numeric(sources_all[i,])>as.numeric(quantile(sources_all[i,],0.5))])), as.numeric(abs(sources_mdd[x,][as.numeric(sources_all[i,])>as.numeric(quantile(sources_all[i,],0.5))])), method = "spearman")$estimate)
-  CorSource = append(CorSource,as.vector(Cors))
+# Now lets do the sources
+find_questions <- function(df_included, threshold_perc, max_components=NA){
+  # A function to find the questions that contribute mostly to each IC
+  
+  # choose the specified number of components
+  if (is.na(max_components)){
+    max_components = nrow(df_included)
+  }
+  df_included = df_included[1:max_components,]  
+  # IC_list is the list of questions included in each IC
+  IC_list = list()
+  for (i in 1:max_components){
+    threshold = as.numeric(quantile(df_included[i,],threshold_perc))
+    df_source = as.numeric(df_included[i,])
+    
+    # get the colnames of questions which pass the threshold
+    IC_list[[i]] = colnames(df_included[i,][df_source > threshold])
+  }
+  return(IC_list)
 }
 
 
+find_q_percentages <-function(df1,df2,Factor, Threshold=0.5){
+  #A Function to find the amount of similarity between ICs in terms of the included questions
+  
+  # create an empty matrix, and change its names
+  Sources_mat_combined = matrix(0,nrow = length(df1),ncol = length(df2))
+  dimnames(Sources_mat_combined) = list(paste0("IC",1:length(df1)), paste0("IC",1:length(df2)))
+  names(dimnames(Sources_mat_combined)) = c("All",Factor)
+  
+  # Calculate the percentages for each IC in both data frames
+  for (i in 1:length(df1)){
+    percs = sapply(1:length(df2), function(x) round(length(df2[[x]][df1[[i]] %in% df2[[x]]])/length(df2[[x]]),3))
+    Sources_mat_combined[i,] = percs
+  }
+  Sources_mat_combined[Sources_mat_combined<Threshold]=0
+  return(Sources_mat_combined)
+}
 
+All_sources_matr = find_questions(sources_all,0.8,10)
+GAD_sources_matr = find_questions(sources_GAD,0.8,10)
+HC_sources_matr = find_questions(sources_HC,0.8,10)
+MDD_sources_matr = find_questions(sources_MDD,0.8,10)
+PTSD_sources_matr = find_questions(sources_PTSD,0.8,10)
+TNP_sources_matr = find_questions(sources_TNP,0.8,10)
+
+
+
+GAD_intersection_perc = find_q_percentages(All_sources_matr, GAD_sources_matr, "GAD",0.5)
+HC_intersection_perc = find_q_percentages(All_sources_matr, HC_sources_matr, "HC",0.5)
+MDD_intersection_perc = find_q_percentages(All_sources_matr, MDD_sources_matr, "MDD",0.5)
+PTSD_intersection_perc = find_q_percentages(All_sources_matr, PTSD_sources_matr, "PTSD",0.5)
+TNP_intersection_perc = find_q_percentages(All_sources_matr, TNP_sources_matr, "TNP",0.5)
+
+
+HC_sources_ICs = rownames(HC_intersection_perc)[apply(abs(HC_intersection_perc),1,max)>0]
+GAD_sources_ICs = rownames(GAD_intersection_perc)[apply(abs(GAD_intersection_perc),1,max)>0]
+MDD_sources_ICs = rownames(MDD_intersection_perc)[apply(abs(MDD_intersection_perc),1,max)>0]
+PTSD_sources_ICs = rownames(PTSD_intersection_perc)[apply(abs(PTSD_intersection_perc),1,max)>0]
+TNP_sources_ICs = rownames(TNP_intersection_perc)[apply(abs(TNP_intersection_perc),1,max)>0]
+
+
+ICs=paste0("IC",1:10)
+IC_source_groups = data.frame(IC=ICs, GAD = ifelse(ICs%in%GAD_sources_ICs,"GAD",""), HC = ifelse(ICs%in%HC_sources_ICs,"HC",""),
+                       MDD = ifelse(ICs%in%MDD_sources_ICs,"MDD",""), PTSD = ifelse(ICs%in%PTSD_sources_ICs,"PTSD",""),
+                       TNP = ifelse(ICs%in%TNP_sources_ICs,"TNP",""))
+
+
+
+# I will do a correlation test
+
+source_cor <- function(df_1, df_2, Factor, max_components_1, max_components_2, estimate_threshold){
+  if (is.na(max_components_1)){
+    max_components_1 = nrow(df_1)
+    max_components_2 = nrow(df_2)
+  }
+  df_1 = df_1[1:max_components_1,]
+  df_2 = df_2[1:max_components_2,]
+  
+  Sources_cor = matrix(0,nrow = max_components_1,ncol = max_components_2)
+  dimnames(Sources_cor) = list(paste0("IC",1:max_components_1), paste0("IC",1:max_components_2))
+  names(dimnames(Sources_cor)) = c("All",Factor)
+    
+  for (i in 1:max_components_1){
+    threshold = 0.05/max_components_2
+    estimates = sapply(1:max_components_2, function(x) cor.test(as.numeric(df_1[i,]),as.numeric(df_2[x,]))$estimate)
+    p_values = sapply(1:max_components_2, function(x) cor.test(as.numeric(df_1[i,]),as.numeric(df_2[x,]))$p.value)
+    estimates[p_values>threshold | abs(estimates)<estimate_threshold] = 0
+    Sources_cor[i,] = estimates
+  }
+  return(Sources_cor)
+}
+
+
+est_threshold = 0.6
+HC_sources_Cor = source_cor(sources_all, sources_HC, "HC", 10, 10, est_threshold)
+GAD_sources_Cor = source_cor(sources_all, sources_GAD, "GAD", 10, 10, est_threshold)
+MDD_sources_Cor = source_cor(sources_all, sources_MDD, "MDD", 10, 10, est_threshold)
+PTSD_sources_Cor = source_cor(sources_all, sources_PTSD, "PTSD", 10, 10, est_threshold)
+TNP_sources_Cor = source_cor(sources_all, sources_TNP, "TNP", 10, 10, est_threshold)
+
+
+HC_sources_ICs_all = rownames(HC_sources_Cor)[apply(abs(HC_sources_Cor),1,max)>0]
+GAD_sources_ICs_all = rownames(GAD_sources_Cor)[apply(abs(GAD_sources_Cor),1,max)>0]
+MDD_sources_ICs_all = rownames(MDD_sources_Cor)[apply(abs(MDD_sources_Cor),1,max)>0]
+PTSD_sources_ICs_all = rownames(PTSD_sources_Cor)[apply(abs(PTSD_sources_Cor),1,max)>0]
+TNP_sources_ICs_all = rownames(TNP_sources_Cor)[apply(abs(TNP_sources_Cor),1,max)>0]
+
+
+# now find the ICs in the each sources df that 
+HC_sources_ICs = sapply(HC_sources_ICs_all,function(item) c(item,colnames(HC_sources_Cor)[abs(HC_sources_Cor[item,])>0]))
+GAD_sources_ICs = sapply(GAD_sources_ICs_all,function(item) c(item,colnames(GAD_sources_Cor)[abs(GAD_sources_Cor[item,])>0]))
+MDD_sources_ICs = sapply(MDD_sources_ICs_all,function(item) c(item,colnames(MDD_sources_Cor)[abs(MDD_sources_Cor[item,])>0]))
+PTSD_sources_ICs = sapply(PTSD_sources_ICs_all,function(item) c(item,colnames(PTSD_sources_Cor)[abs(PTSD_sources_Cor[item,])>0]))
+TNP_sources_ICs = sapply(TNP_sources_ICs_all,function(item) c(item,colnames(TNP_sources_Cor)[abs(TNP_sources_Cor[item,])>0]))
+
+ICs=paste0("IC",1:10)
+IC_source_correlations = data.frame(IC=ICs, GAD = ifelse(ICs%in%GAD_sources_ICs,"GAD",""), HC = ifelse(ICs%in%HC_sources_ICs,"HC",""),
+                       MDD = ifelse(ICs%in%MDD_sources_ICs,"MDD",""), PTSD = ifelse(ICs%in%PTSD_sources_ICs,"PTSD",""),
+                       TNP = ifelse(ICs%in%TNP_sources_ICs,"TNP",""))
+
+
+
+all_sources = data.frame(Question = melt(sources_HC[1:10,])$variable, IC_all = rep(paste0("IC",1:10),100), All = melt(sources_all[1:10,])$value, HC = melt(sources_HC[1:10,])$value, 
+                         GAD = melt(sources_GAD[1:10,])$value, MDD = melt(sources_MDD[1:10,])$value, PTSD = melt(sources_PTSD[1:10,])$value, TNP = melt(sources_TNP[1:10,])$value)
+
+
+all_sources_melted = melt(all_sources, id.vars = c("Question","IC_all"), value.name = "Source", variable.name = "Group")
+all_sources_melted$IC_group = NA
+shuffle_ICs <- function(Sources_IC, Factor){
+  if (length(Sources_IC)>0){
+    for (i in 1:ncol(Sources_IC)){
+      all_sources_melted$IC_group[all_sources_melted$Group==Factor&all_sources_melted$IC_all== Sources_IC[1,i]] = Sources_IC[2,i]
+      all_sources_melted$Sources_group[all_sources_melted$Group==Factor&all_sources_melted$IC_all== Sources_IC[1,i]] = all_sources_melted$Source[all_sources_melted$Group==Factor&all_sources_melted$IC_all== Sources_IC[2,i]]
+    }
+  }
+  return(all_sources_melted)
+}
+
+all_sources_melted = shuffle_ICs(HC_sources_ICs,"HC")
+all_sources_melted = shuffle_ICs(GAD_sources_ICs,"GAD")
+all_sources_melted = shuffle_ICs(PTSD_sources_ICs,"PTSD")
+all_sources_melted = shuffle_ICs(TNP_sources_ICs,"TNP")
+all_sources_melted = shuffle_ICs(MDD_sources_ICs,"MDD")
+all_sources_melted$Sources_group[all_sources_melted$Group == "All"] = all_sources_melted$Source[all_sources_melted$Group == "All"]
+
+g1 = ggplot(data = all_sources_melted, aes(x=Question, y= Sources_group, group =Group))+
+    geom_line()+
+    facet_grid(Group~IC_all)+
+    geom_text(aes(x= 50,y=10,label = IC_group))
+
+# use sources from one data frame to reconstruct original data
+
+```
+
+
+```{r plot different types of reconstructions}
+library (ggplot2)
+library(reshape2)
+library(dplyr)
+general_info = py$projections_all[,1:8]
+for (i in 1:8){
+  general_info[,i][general_info[,i]=="NA"]=NA
+}
+general_info = as.data.frame(apply(general_info,2,as.factor))
+general_info$ID = factor(general_info$ID, levels = general_info$ID)
+
+prepare_data_list <- function(df_list){
+  # A function to prepare projections data frames
+  for(i in 1:length(df_list)){
+    df_list[[i]] = cbind(general_info,df_list[[i]])
+    colnames(df_list[[i]])=c(colnames(df_list[[i]])[1:8],paste0("Q",1:100))
+  }
+  
+  df_list_melted = sapply(1:length(df_list),function(i) melt(df_list[[i]], variable.name = "Question", value.name = "Reconstruction"),simplify = FALSE)
+  df_list_melted = bind_rows(df_list_melted)
+  df_list_melted$IC = factor(rep(paste0("IC",1:10),each = 182200),levels = paste0("IC",1:10))
+  data_reco_mean = bind_rows(lapply(levels(df_list_melted$Question),function(item) SMeans(df_list_melted[df_list_melted$Question==item,],DV = "Reconstruction", IVs = c("Diagnosis","IC"), GroupBy = "Diagnosis")))
+  data_reco_mean$Question = rep(levels(df_list_melted$Question),each = 50)
+  data_reco_mean$IC = factor(data_reco_mean$IC, levels = paste0("IC",1:10))
+  return (list(df_list_melted,data_reco_mean))
+}
+
+data_reco_all_list = prepare_data_list(py$data_reco_all_list)
+data_reco_hc_list = prepare_data_list(py$data_reco_hc_list)
+data_reco_mdd_list = prepare_data_list(py$data_reco_mdd_list)
+data_reco_gad_list = prepare_data_list(py$data_reco_gad_list)
+data_reco_ptsd_list = prepare_data_list(py$data_reco_ptsd_list)
+data_reco_tnp_list =prepare_data_list( py$data_reco_tnp_list)
+
+data_reco_all = data_reco_all_list[1]
+data_reco_hc = data_reco_hc_list[1]
+data_reco_mdd = data_reco_mdd_list[1]
+data_reco_gad = data_reco_gad_list[1]
+data_reco_ptsd = data_reco_ptsd_list[1]
+data_reco_tnp = data_reco_tnp_list[1]
+
+data_reco_all = data_reco_all_list[1]
+data_reco_hc = data_reco_hc_list[1]
+data_reco_mdd = data_reco_mdd_list[1]
+data_reco_gad = data_reco_gad_list[1]
+data_reco_ptsd = data_reco_ptsd_list[1]
+data_reco_tnp = data_reco_tnp_list[1]
+
+g_all = ggplot(data_reco_all, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
+  geom_point(color = "black", shape = 21)+
+  TypicalTheme+
+  scale_y_continuous(limits = c(0,0.4))+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  facet_wrap(~IC)
+
+g_hc = ggplot(data_reco_hc, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
+  geom_point(color = "black", shape = 21)+
+  TypicalTheme+
+  scale_y_continuous(limits = c(0,0.4))+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  facet_wrap(~IC)
+
+
+g_mdd = ggplot(data_reco_mdd, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
+  geom_point(color = "black", shape = 21)+
+  TypicalTheme+
+  scale_y_continuous(limits = c(0,0.4))+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  facet_wrap(~IC)
+
+
+g_gad = ggplot(data_reco_gad, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
+  geom_point(color = "black", shape = 21)+
+  TypicalTheme+
+  scale_y_continuous(limits = c(0,0.4))+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  facet_wrap(~IC)
+
+
+g_ptsd = ggplot(data_reco_ptsd, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
+  geom_point(color = "black", shape = 21)+
+  TypicalTheme+
+  scale_y_continuous(limits = c(0,0.4))+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  facet_wrap(~IC)
+
+g_tnp = ggplot(data_reco_tnp, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
+  geom_point(color = "black", shape = 21)+
+  TypicalTheme+
+  scale_y_continuous(limits = c(0,0.4))+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  facet_wrap(~IC)
 ```

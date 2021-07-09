@@ -642,7 +642,8 @@ LogisticInfoFinder <- function(Model,iterations=10,Stepwise=TRUE,DeleterMean=100
 
 LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   #The Model is a logistic model (DV~IV1+IV2..., family = binomial())
-  Data=Model$data
+  Factor = as.character(Model$formula[[2]])
+  Data=Model$data[!is.na(Model$data[[Factor]]),]
   Summary=summary(Model)
   n.value=Model$df.null+1
   Coefficients = Summary$coefficients
@@ -681,7 +682,7 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   
   BaseLevel=levels(PredictedVar)[1]
   FirstLevel=levels(PredictedVar)[2]
-  
+
   Data$predicted.probability <-fitted(Model)
   Data$predicted.outcome <-ifelse(fitted(Model)<Threshold, BaseLevel, FirstLevel)
   
