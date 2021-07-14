@@ -123,6 +123,9 @@ data_tpq_disorders, data_reco_disorders, scores_disorders,projections_disorders,
 ```
 
 ```{python add subjects_decomposition}
+import os
+import numpy as np
+import pandas as pd
 
 def prepare_icasso_subjects(npz_sub_path):
     """
@@ -166,28 +169,46 @@ def prepare_icasso_subjects(npz_sub_path):
     # create two data frames to be added to the data inside each dictionary item
     sub_info_2d = [[IDs[i], diagnoses[i], trauma[i], gad[i], response[i], ptsd[i], mdd[i], session[i]] for i in
                    range(len(IDs))]
-    sub_info_3d = [np.array(sub_info_2d).transpose().tolist()] * npz_results["data_reco"].shape[0]
-    sub_info = pd.DataFrame(sub_info_2d,
-                            columns=["ID", "Diagnosies", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session"]).transpose()
+    sub_info = pd.DataFrame(sub_info_2d, columns=["ID", "Diagnosies", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session"])
     # read all data
     data_tpq = pd.DataFrame(npz_sub["data_tpq"])
-    data_tpq = sub_info.append(data_tpq)
-    # rename the columns
-    data_tpq.columns = ["S" + str(i) for i in range(1, 1823)]
+
+    # rename the rows and columns
+    data_tpq.columns = sub_info["ID"]
+    data_tpq.index = ["Q"+str(i) for i in range(1,101)]
 
     data_reco = npz_results["data_reco"]
-    data_reco = [pd.DataFrame(item, columns=["S" + str(i) for i in range(1, 1823)]) for item in
-                 np.append(np.array(sub_info_3d), data_reco, axis=1)]
+    data_reco = [pd.DataFrame(item, columns=sub_info["ID"]) for item in data_reco]
+
     scores = npz_results["scores"]
-    projections = npz_results['projection']
+    projections = pd.DataFrame(npz_results['projection'], columns=["IC"+str(i) for i in range(1,npz_results['projection'].shape[1]+1)])
+    data_tpq.index = ["Q" + str(i) for i in range(1, 101)]
 
     sources = npz_results["sources"]
-    sources = pd.DataFrame(np.append(np.array(sub_info_2d).transpose(),sources,axis=0), columns=["S" + str(i) for i in range(1, 1823)])
-    return (data_tpq, data_reco, scores, projections, sources)
+    sources = pd.DataFrame(sources, columns=sub_info["ID"])
+
+    return (data_tpq, data_reco, scores, projections, sources, sub_info)
+
+
+
+# calculate original scores
+
+# use the scores file to extract diagnoses
+scores_path = "/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx"
+if not os.path.exists(scores_path):
+  scores_path = scores_path.replace("/abdulrahman/abdulrahman.sawalma@gmail.com","/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive")
+or_scores = pd.read_excel(scores_path)[["Diagnosis","Final ID","Trauma", "GAD", "Response", "PTSD", "MDD", "Session"]]
+or_scores.loc[pd.isna(or_scores["Trauma"]),or_scores.columns=="Trauma"] = "NA"
+or_scores.loc[pd.isna(or_scores["GAD"]),or_scores.columns=="GAD"] = "NA"
+or_scores.loc[pd.isna(or_scores["Response"]),or_scores.columns=="Response"] = "NA"
+or_scores.loc[pd.isna(or_scores["PTSD"]),or_scores.columns=="PTSD"] = "NA"
+or_scores.loc[pd.isna(or_scores["MDD"]),or_scores.columns=="MDD"] = "NA"
+
 
 #Now we add the subjects decomposition
 subjects_path = path + "/../../Subject_DataAnalysis/HC,MDD,PTSD,TNP,GAD/n_comp13/icasso_ICA-subjects_HC,MDD,PTSD,TNP,GAD_nsamp100_n_comp13_n_iter100_dist0.40_MNEinfomax.npz"
-subjects_tpq_all, subjects_reco_all, subjects_all,subjects_all,subjects_all = prepare_icasso_subjects(subjects_path)
+subjects_path_8 = path + "/../../Subject_DataAnalysis/HC,MDD,PTSD,TNP,GAD/n_comp08/icasso_ICA-subjects_HC,MDD,PTSD,TNP,GAD_nsamp100_n_comp08_n_iter100_dist0.40_MNEinfomax.npz"
+subjects_tpq, subjects_reco, subjects_scores, subjects_projections, subjects_sources, sub_info = prepare_icasso_subjects(subjects_path_8)
 
 ```
 
@@ -549,7 +570,8 @@ sapply(1:15, function(x) plot_original(data_tpq_all[data_tpq_all$Session=="Retes
 ```
 
 ```{r plot projections}
-
+library(reshape2)
+library(ggplot2)
 plot_proj <- function(Factor){  
   data = projections_all
   data[,9:ncol(data)] = apply(data[,9:ncol(data)],2,as.numeric)
@@ -571,7 +593,7 @@ plot_proj <- function(Factor){
     scale_x_discrete(name = Factor)
     
   return(multiplot(g1,g2))
-}    
+}
 
 sapply(c("Diagnosis","Response","Trauma","GAD","Session"), function(x) plot_proj(x), simplify = FALSE)
 ```
@@ -1189,7 +1211,7 @@ multiplot(norm,perc)
 
 ```{r create a new projection df (from the separate group data_reco and projections) and compare this to the ones obtained from the combianed ICA data frames}
 library(reshape2)
-
+library(ggplot2)
 prepare_data <- function(local_df){
   # A function to prepare projections data frames
   # 1. remove NAs
@@ -1214,12 +1236,12 @@ projections_mdd = prepare_data(py$projections_mdd)
 projections_ptsd = prepare_data(py$projections_ptsd)
 projections_tnp = prepare_data(py$projections_tnp)
 
-sources_all = py$sources_all
-sources_GAD = py$sources_gad
-sources_HC = py$sources_hc
-sources_MDD = py$sources_mdd
-sources_PTSD = py$sources_ptsd
-sources_TNP = py$sources_tnp
+sources_all = as.data.frame(py$sources_all)
+sources_GAD = as.data.frame(py$sources_gad)
+sources_HC = as.data.frame(py$sources_hc)
+sources_MDD = as.data.frame(py$sources_mdd)
+sources_PTSD = as.data.frame(py$sources_ptsd)
+sources_TNP = as.data.frame(py$sources_tnp)
 
 projections_grouped = split(projections_all,projections_all$Diagnosis)
 
@@ -1391,24 +1413,31 @@ TNP_sources_ICs_all = rownames(TNP_sources_Cor)[apply(abs(TNP_sources_Cor),1,max
 
 
 # now find the ICs in the each sources df that 
-HC_sources_ICs = sapply(HC_sources_ICs_all,function(item) c(item,colnames(HC_sources_Cor)[abs(HC_sources_Cor[item,])>0]))
-GAD_sources_ICs = sapply(GAD_sources_ICs_all,function(item) c(item,colnames(GAD_sources_Cor)[abs(GAD_sources_Cor[item,])>0]))
-MDD_sources_ICs = sapply(MDD_sources_ICs_all,function(item) c(item,colnames(MDD_sources_Cor)[abs(MDD_sources_Cor[item,])>0]))
-PTSD_sources_ICs = sapply(PTSD_sources_ICs_all,function(item) c(item,colnames(PTSD_sources_Cor)[abs(PTSD_sources_Cor[item,])>0]))
-TNP_sources_ICs = sapply(TNP_sources_ICs_all,function(item) c(item,colnames(TNP_sources_Cor)[abs(TNP_sources_Cor[item,])>0]))
+HC_sources_ICs = sapply(paste0("IC",1:10),function(item) c(item,colnames(HC_sources_Cor)[abs(HC_sources_Cor[item,])>0],round(HC_sources_Cor[item,abs(HC_sources_Cor[item,])>0],digits = 3)))
+GAD_sources_ICs = sapply(paste0("IC",1:10),function(item) c(item,colnames(GAD_sources_Cor)[abs(GAD_sources_Cor[item,])>0],round(GAD_sources_Cor[item,abs(GAD_sources_Cor[item,])>0],digits = 3)))
+MDD_sources_ICs = sapply(paste0("IC",1:10),function(item) c(item,colnames(MDD_sources_Cor)[abs(MDD_sources_Cor[item,])>0],round(MDD_sources_Cor[item,abs(MDD_sources_Cor[item,])>0],digits = 3)))
+PTSD_sources_ICs = sapply(paste0("IC",1:10),function(item) c(item,colnames(PTSD_sources_Cor)[abs(PTSD_sources_Cor[item,])>0],round(PTSD_sources_Cor[item,abs(PTSD_sources_Cor[item,])>0],digits = 3)))
+TNP_sources_ICs = sapply(paste0("IC",1:10),function(item) c(item,colnames(TNP_sources_Cor)[abs(TNP_sources_Cor[item,])>0],round(TNP_sources_Cor[item,abs(TNP_sources_Cor[item,])>0],digits = 3)))
 
-ICs=paste0("IC",1:10)
-IC_source_correlations = data.frame(IC=ICs, GAD = ifelse(ICs%in%GAD_sources_ICs,"GAD",""), HC = ifelse(ICs%in%HC_sources_ICs,"HC",""),
-                       MDD = ifelse(ICs%in%MDD_sources_ICs,"MDD",""), PTSD = ifelse(ICs%in%PTSD_sources_ICs,"PTSD",""),
-                       TNP = ifelse(ICs%in%TNP_sources_ICs,"TNP",""))
+HC_sources_ICs[sapply(1:10,function(i) length(HC_sources_ICs[[i]])==1)]=list(c(NA,NA,NA))
+GAD_sources_ICs[sapply(1:10,function(i) length(GAD_sources_ICs[[i]])==1)]=list(c(NA,NA,NA))
+MDD_sources_ICs[sapply(1:10,function(i) length(MDD_sources_ICs[[i]])==1)]=list(c(NA,NA,NA))
+PTSD_sources_ICs[sapply(1:10,function(i) length(PTSD_sources_ICs[[i]])==1)]=list(c(NA,NA,NA))
+TNP_sources_ICs[sapply(1:10,function(i) length(TNP_sources_ICs[[i]])==1)]=list(c(NA,NA,NA))
 
-
+HC_sources_ICs = simplify2array(HC_sources_ICs)
+GAD_sources_ICs = simplify2array(GAD_sources_ICs)
+MDD_sources_ICs = simplify2array(MDD_sources_ICs)
+PTSD_sources_ICs = simplify2array(PTSD_sources_ICs)
+TNP_sources_ICs = simplify2array(TNP_sources_ICs)
+#HC_sources_ICs[1,] = colnames(HC_sources_ICs)
 
 all_sources = data.frame(Question = melt(sources_HC[1:10,])$variable, IC_all = rep(paste0("IC",1:10),100), All = melt(sources_all[1:10,])$value, HC = melt(sources_HC[1:10,])$value, 
                          GAD = melt(sources_GAD[1:10,])$value, MDD = melt(sources_MDD[1:10,])$value, PTSD = melt(sources_PTSD[1:10,])$value, TNP = melt(sources_TNP[1:10,])$value)
 
-
+all_sources$Question = rep(paste0("Q",1:100),each = 10)
 all_sources_melted = melt(all_sources, id.vars = c("Question","IC_all"), value.name = "Source", variable.name = "Group")
+
 all_sources_melted$IC_group = NA
 shuffle_ICs <- function(Sources_IC, Factor){
   if (length(Sources_IC)>0){
@@ -1420,22 +1449,25 @@ shuffle_ICs <- function(Sources_IC, Factor){
   return(all_sources_melted)
 }
 
-all_sources_melted = shuffle_ICs(HC_sources_ICs,"HC")
-all_sources_melted = shuffle_ICs(GAD_sources_ICs,"GAD")
-all_sources_melted = shuffle_ICs(PTSD_sources_ICs,"PTSD")
-all_sources_melted = shuffle_ICs(TNP_sources_ICs,"TNP")
-all_sources_melted = shuffle_ICs(MDD_sources_ICs,"MDD")
+all_sources_melted = shuffle_ICs(HC_sources_ICs[,!is.na(HC_sources_ICs[2,])],"HC")
+all_sources_melted = shuffle_ICs(GAD_sources_ICs[,!is.na(GAD_sources_ICs[2,])],"GAD")
+all_sources_melted = shuffle_ICs(PTSD_sources_ICs[,!is.na(PTSD_sources_ICs[2,])],"PTSD")
+all_sources_melted = shuffle_ICs(TNP_sources_ICs[,!is.na(TNP_sources_ICs[2,])],"TNP")
+all_sources_melted = shuffle_ICs(MDD_sources_ICs[,!is.na(MDD_sources_ICs[2,])],"MDD")
 all_sources_melted$Sources_group[all_sources_melted$Group == "All"] = all_sources_melted$Source[all_sources_melted$Group == "All"]
+all_sources_melted$IC_group_plot = as.vector(sapply(1:6, function(x) c(all_sources_melted$IC_group[all_sources_melted$Question=="Q1"][((x-1)*10+1):(x*10)],rep(NA,990))))
+all_sources_melted$Cor_plot = c(rep(NA,1000),c(HC_sources_ICs[3,],rep(NA,990)),c(GAD_sources_ICs[3,],rep(NA,990)),c(MDD_sources_ICs[3,],rep(NA,990)),c(PTSD_sources_ICs[3,],rep(NA,990)),c(TNP_sources_ICs[3,],rep(NA,990)))
 
+all_sources_melted$IC_all = factor(all_sources_melted$IC_all, levels = paste0("IC",1:10))
 g1 = ggplot(data = all_sources_melted, aes(x=Question, y= Sources_group, group =Group))+
-    geom_line()+
-    facet_grid(Group~IC_all)+
-    geom_text(aes(x= 50,y=10,label = IC_group))
+  geom_line()+
+  facet_grid(Group~IC_all)+
+  geom_text(aes(x= 50,y=12,label = IC_group_plot))+
+  geom_text(aes(x= 50,y=8,label = Cor_plot))
+g1
 
-# use sources from one data frame to reconstruct original data
 
 ```
-
 
 ```{r plot different types of reconstructions}
 library (ggplot2)
@@ -1471,19 +1503,12 @@ data_reco_gad_list = prepare_data_list(py$data_reco_gad_list)
 data_reco_ptsd_list = prepare_data_list(py$data_reco_ptsd_list)
 data_reco_tnp_list =prepare_data_list( py$data_reco_tnp_list)
 
-data_reco_all = data_reco_all_list[1]
-data_reco_hc = data_reco_hc_list[1]
-data_reco_mdd = data_reco_mdd_list[1]
-data_reco_gad = data_reco_gad_list[1]
-data_reco_ptsd = data_reco_ptsd_list[1]
-data_reco_tnp = data_reco_tnp_list[1]
-
-data_reco_all = data_reco_all_list[1]
-data_reco_hc = data_reco_hc_list[1]
-data_reco_mdd = data_reco_mdd_list[1]
-data_reco_gad = data_reco_gad_list[1]
-data_reco_ptsd = data_reco_ptsd_list[1]
-data_reco_tnp = data_reco_tnp_list[1]
+data_reco_all = data_reco_all_list[[2]]
+data_reco_hc = data_reco_hc_list[[2]]
+data_reco_mdd = data_reco_mdd_list[[2]]
+data_reco_gad = data_reco_gad_list[[2]]
+data_reco_ptsd = data_reco_ptsd_list[[2]]
+data_reco_tnp = data_reco_tnp_list[[2]]
 
 g_all = ggplot(data_reco_all, aes(x= Question, y = Reconstruction, group = Groups, fill = Groups))+
   geom_point(color = "black", shape = 21)+
@@ -1529,4 +1554,444 @@ g_tnp = ggplot(data_reco_tnp, aes(x= Question, y = Reconstruction, group = Group
   scale_y_continuous(limits = c(0,0.4))+
   scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
   facet_wrap(~IC)
+```
+
+```{r Subject decomposition}
+library(ggplot2)
+library(reshape2)
+library(readxl)
+library(corrplot)
+library(ppcor)
+max_comp = length(py$subjects_reco)
+if (max_comp>10){
+  max_comp = 10
+}
+subjects_tpq = py$subjects_tpq
+subjects_reco = py$subjects_reco[1:max_comp]
+subjects_scores = py$subjects_scores
+subjects_projections = py$subjects_projections[,1:max_comp]
+subjects_sources = py$subjects_sources[1:max_comp,]
+subjects_sources_t = as.data.frame(apply(t(subjects_sources),2,as.numeric))
+sub_info = py$sub_info
+sub_info[sub_info=="NA"]=NA
+sub_info[,2:8] = as.data.frame(apply(sub_info[,2:8],2,as.factor))
+sub_info[["ID"]] = factor(sub_info[["ID"]], levels = sub_info[["ID"]])
+
+
+TPQQuestions_sub = list(NS1=paste0("Q",c(2, 4, 9, 11, 40, 43, 85, 93, 96)),
+                        NS2=paste0("Q",c(30, 46, 48, 50, 55, 56, 81, 99)),
+                        NS3=paste0("Q",c(32, 66, 70, 72, 76, 78, 87)),
+                        NS4=paste0("Q",c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65)),
+                        HA1=paste0("Q",c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98)),
+                        HA2=paste0("Q",c(18, 19, 23, 26, 29, 47, 51)),
+                        HA3=paste0("Q",c(33, 37, 38, 42, 44, 89, 100)),
+                        HA4=paste0("Q",c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80)),
+                        RD1=paste0("Q",c(27, 31, 34, 83, 94)),
+                        RD2=paste0("Q",c(39, 41, 45, 52, 53, 77, 79, 92, 97)),
+                        RD3=paste0("Q",c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90)),
+                        RD4=paste0("Q",c(17, 20, 25, 36, 58)))
+TPQQuestions_main = list(NS=paste0("Q",c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65)),
+                         HA=paste0("Q",c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80)),
+                         RD=paste0("Q",c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58)))
+
+TPQQuestions_all = append(TPQQuestions_main,TPQQuestions_sub)
+
+tpq_Cloninger = data.frame(t(subjects_tpq))
+tpq_Cloninger[tpq_Cloninger==-1]=0
+tpq_Cloninger[,c("ID","MDD","GAD","PTSD", "Diagnosis","Trauma","Session")] = sub_info[,c("ID","MDD","GAD","PTSD", "Diagnosies","Trauma","Session")]
+tpq_Cloninger$HC = as.factor(ifelse(sub_info$Diagnosies=="HC","Yes","No"))
+for (i in 1:length(TPQQuestions_all)){
+  col_n = names(TPQQuestions_all)[i]
+  tpq_Cloninger[[col_n]] = apply(tpq_Cloninger[,TPQQuestions_all[[i]]],1,sum)
+}
+  
+# add question columns to subject_projections and reconstructed data, and IC column to sources
+subjects_projections$Question = factor(paste0("Q",1:100), levels = paste0("Q",1:100))
+for (i in 1:length(subjects_reco)){
+  subjects_reco[[i]]$Question = factor(paste0("Q",1:100), levels = paste0("Q",1:100))
+}
+
+subjects_sources$IC = factor(paste0("IC",1:nrow(subjects_sources)), levels = paste0("IC",1:nrow(subjects_sources)))
+
+
+colnames(subjects_sources_t) = paste0("IC",1:max_comp)
+subjects_sources_t[,c("ID","MDD","GAD","PTSD", "Diagnosis","Trauma","Session")] = sub_info[,c("ID","MDD","GAD","PTSD", "Diagnosies","Trauma","Session")]
+subjects_sources_t$HC = as.factor(ifelse(sub_info$Diagnosies=="HC","Yes","No"))
+
+
+#try some logistic reg
+subjects_sources_t = subjects_sources_t[sub_info$Session == "Test",]
+
+Form = as.formula(paste0("MDD","~",paste0("IC",1:max_comp,collapse = "+")))
+Model = step(glm(formula = Form, data = subjects_sources_t, family = binomial),direction = "both")
+summary(Model)
+LogisticFunction(Model)
+Model2 = step(glm(MDD~RD1+RD2+RD3+RD4+HA1+HA2+HA3+HA4+NS1+NS2+NS3+NS4, data = tpq_Cloninger, family = binomial()),direction = "back")
+summary(Model2)
+LogisticFunction(Model2, plt_type="histogram")
+
+
+#plot projections
+projections_melt = melt(subjects_projections, id.vars = "Question", variable.name = "IC", value.name = "Projection")
+ggplot(projections_melt, aes(x = Question, y = Projection, group = IC, fill = IC))+
+  geom_line()+
+  facet_wrap(~IC)
+
+# plot sources
+sources_melted = melt(subjects_sources, id.vars = "IC", value.name = "Source", variable.name = "Subject")
+ggplot(sources_melted, aes(x = Subject, y = Source, group = IC, fill = IC))+
+  geom_line()+
+  facet_wrap(~IC)
+
+# Cloninger percentages of matching
+# arrange subscales in terms of the Cloninger scales that represent them
+subscales = c(paste0("NS",1:4),paste0("HA",1:4),paste0("RD",1:4))
+scales = c("NS","HA", "RD")
+subscale_questions =c()
+scale_questions =c()
+for (question in paste0("Q",1:100)){
+  subscale_q = names(TPQQuestions_sub)[sapply(subscales, function(sub_x) question %in% TPQQuestions_sub[[sub_x]])]
+  scale_q = names(TPQQuestions_main)[sapply(scales, function(sub_x) question %in% TPQQuestions_main[[sub_x]])]
+  
+  # in case there are questions that are not included
+  if (length(subscale_q)==0){
+    subscale_q=NA
+    scale_q = NA
+  }
+  subscale_questions = append(subscale_questions, subscale_q)
+  scale_questions = append(scale_questions, scale_q)
+}
+
+
+#plot projections
+projections_melt = melt(subjects_projections, id.vars = "Question", variable.name = "IC", value.name = "Projection")
+projections_melt$subscale = rep(subscale_questions, max_comp)
+projections_melt$scale = rep(scale_questions, max_comp)
+ggplot(projections_melt, aes(x = Question, y = Projection, group = IC, color = subscale))+
+  geom_point()+
+  facet_wrap(~IC)
+
+DataMeans_scale = SMeans(Data = projections_melt, DV="Projection", IVs = c("scale","IC"))
+DataMeans_subscale = SMeans(Data = projections_melt, DV="Projection", IVs = c("subscale","IC"))
+ggplot(DataMeans_scale, aes(x = IC, y = Projection, group = scale, fill = scale))+
+  geom_bar(stat = "identity")+
+  facet_wrap(~scale)
+
+ggplot(DataMeans_subscale, aes(x = subscale, y = Projection, group = IC, fill = IC))+
+  geom_bar(stat = "identity")+
+  facet_wrap(~IC)
+
+
+
+
+sources_melted = melt(subjects_sources, id.vars = c("IC","Diagnosis"), value.name = "Source", variable.name = "Subject")
+DataMeans = SMeans(sources_melted, DV = "Source", IVs = c("IC","Diagnosis"), Group = "Diagnosis")
+DataMeans$Source = abs(DataMeans$Source)
+DataMeans$IC = factor(DataMeans$IC, levels = paste0("IC",1:max_comp))
+ggplot(sources_melted, aes(x = Subject, y = Source, group = IC, color = Diagnosis))+
+  geom_line()+
+  facet_wrap(~IC)
+ggplot(DataMeans, aes(x = IC, y = Source, group = IC, fill = Groups))+
+  geom_bar(stat = "identity")+
+  facet_wrap(~Diagnosis)
+```
+
+```{r logistic function}
+subjects_sources = py$subjects_sources[1:max_comp,]
+subjects_sources_t = as.data.frame(apply(t(subjects_sources),2,as.numeric))
+sub_info = py$sub_info
+sub_info[sub_info=="NA"]=NA
+sub_info[,2:8] = as.data.frame(apply(sub_info[,2:8],2,as.factor))
+sub_info[["ID"]] = factor(sub_info[["ID"]], levels = sub_info[["ID"]])
+
+subjects_tpq = as.data.frame(t(py$subjects_tpq))
+subjects_tpq$ID = sub_info[["ID"]]
+subjects_tpq$Diagnosis = sub_info[["Diagnosies"]]
+subjects_tpq$MDD = sub_info[["MDD"]]
+subjects_tpq$TNP = sub_info[["Trauma"]]
+subjects_tpq$PTSD = sub_info[["PTSD"]]
+subjects_tpq$GAD = sub_info[["GAD"]]
+
+subjects_reco = py$subjects_reco[1:max_comp]
+for (i in 1:length(subjects_reco)){
+  subjects_reco[[i]] = as.data.frame(t(subjects_reco[[i]]))
+  colnames(subjects_reco[[i]]) = paste0("Q",1:100)
+  subjects_reco[[i]]$ID = sub_info[["ID"]]
+  subjects_reco[[i]]$Diagnosis = sub_info[["Diagnosies"]]
+  subjects_reco[[i]]$MDD = sub_info[["MDD"]]
+  subjects_reco[[i]]$TNP = sub_info[["Trauma"]]
+  subjects_reco[[i]]$PTSD = sub_info[["PTSD"]]
+  subjects_reco[[i]]$GAD = sub_info[["GAD"]]
+}
+
+# add question columns to subject_projections and reconstructed data, and IC column to sources
+subjects_projections$Question = factor(paste0("Q",1:100), levels = paste0("Q",1:100))
+
+subjects_sources$IC = factor(paste0("IC",1:nrow(subjects_sources)), levels = paste0("IC",1:nrow(subjects_sources)))
+
+
+colnames(subjects_sources_t) = paste0("IC",1:max_comp)
+subjects_sources_t$Diagnosis = sub_info$Diagnosies
+subjects_sources_t$MDD = sub_info$MDD
+subjects_sources_t$GAD = sub_info$GAD
+subjects_sources_t$PTSD = sub_info$PTSD
+subjects_sources_t$TNP = sub_info$Trauma
+subjects_sources_t$HC = as.factor(ifelse(sub_info$Diagnosies=="HC","Yes","No"))
+
+#try some logistic reg
+
+Form = as.formula(paste0("MDD","~",paste0("IC",1:max_comp,collapse = "+")))
+Model = step(glm(formula = Form, data = subjects_sources_t, family = binomial),direction = "both")
+summary(Model)
+LogisticFunction(Model)
+Model2 = glm(MDD~IC5, data = subjects_sources_t, family = binomial())
+summary(Model2)
+LogisticFunction(Model2, plt_type="glm")
+
+
+# now we do multinomial logistic regression
+library(mlogit)
+# convert the data to the appropriate form
+subjects_sources_t = subjects_sources_t[!is.na(subjects_sources_t$Diagnosis),]
+mlDiagnosis = mlogit.data(subjects_sources_t, choice = "Diagnosis", shape = "wide")
+Model = mlogit(Diagnosis~1|IC1+IC2+IC3+IC4+IC5+IC6+IC7+IC8, data = mlDiagnosis, reflevel = "HC")
+summary(Model)
+data.frame(exp(Model$coefficients))
+exp(confint(Model))
+
+mod_max = apply(Model$probabilities[,2:5],1,max)
+Predicted_diagnosis = sapply(1:nrow(Model$probabilities), function(x) colnames(Model$probabilities[,2:5])[match(mod_max[x], Model$probabilities[x,2:5])])
+Actual_diagnosis = subjects_sources_t$Diagnosis
+table(Predicted_diagnosis, Actual_diagnosis)
+
+# lets do one IC, choose the questions with the highest projections
+IC1_qs = as.character(subjects_projections$Question[abs(subjects_projections$IC1)>quantile(abs(subjects_projections$IC1),0.8)])
+IC_reco = subjects_reco[[1]][,(colnames(subjects_reco[[1]]) %in% IC1_qs | colnames(subjects_reco[[1]]) %in% c("MDD","GAD","PTSD","TNP","Diagnosis","ID"))]
+IC_reco = IC_reco[!is.na(IC_reco$MDD),]
+
+
+Form = formula(paste0("MDD~",paste0(IC1_qs,collapse = "+")))
+MDD_Model = glm(Form, data = IC_reco, family = binomial())
+MDD_Model2 = glm(MDD ~ Q20, data = IC_reco, family = binomial())
+summary(MDD_Model)
+LogisticFunction(MDD_Model2)
+
+#original data
+IC_or = subjects_tpq[,(colnames(subjects_tpq) %in% IC1_qs | colnames(subjects_tpq) %in% c("MDD","GAD","PTSD","TNP","Diagnosis","ID"))]
+IC_or = IC_or[!is.na(IC_or$MDD),]
+Form = formula(paste0("MDD~",paste0(IC1_qs,collapse = "+")))
+MDD_Model = step(glm(Form, data = IC_or, family = binomial()),direction = "back")
+summary(MDD_Model)
+LogisticFunction(MDD_Model)
+
+
+```
+
+```{r log regression for group-specific reconstruction}
+library(dplyr)
+df_mdd = data_reco_mdd_list[[1]]
+df_ptsd = data_reco_ptsd_list[[1]]
+
+MDD_df = df_mdd[,c(1,9:11)]
+MDD_df = reshape(MDD_df, idvar = c("ID","IC"), timevar = "Question", direction = "wide", v.names = "Reconstruction")
+colnames(MDD_df) = c("ID","IC",paste0("Q",1:100))
+MDD_df[,c("Diagnosis","MDD","GAD","PTSD","TNP","Session","Response")]  = df_mdd[df_mdd$Question=="Q1",c("Diagnosis","MDD","GAD","PTSD","Trauma","Session","Response")]
+
+PTSD_df = df_ptsd[,c(1,9:11)]
+PTSD_df = reshape(PTSD_df, idvar = c("ID","IC"), timevar = "Question", direction = "wide", v.names = "Reconstruction")
+colnames(PTSD_df) = c("ID","IC",paste0("Q",1:100))
+PTSD_df[,c("Diagnosis","MDD","GAD","PTSD","TNP","Session","Response")]  = df_ptsd[df_ptsd$Question=="Q1",c("Diagnosis","MDD","GAD","PTSD","Trauma","Session","Response")]
+
+
+# now we do multinomial logistic regression
+library(mlogit)
+# convert the data to the appropriate form
+
+MDD_df = MDD_df[!is.na(MDD_df$Diagnosis),]
+ll = lapply(1:180, function(x) bind_rows(lapply(as.character(df_mdd$ID)[((x-1)*10+1):(x*10)],function(id) SMeans(df_mdd[df_mdd$ID==id,c("Reconstruction","IC")], DV = "Reconstruction", IV = c("IC")))))
+MDD_df_log = bind_rows(ll)
+MDD_df_log[,c("Count","SEM")] = NULL
+MDD_df_log$ID = rep(df_mdd$ID[1:1800],each = 10)
+MDD_df_log$Diagnosis = rep(df_mdd$Diagnosis[1:1800],each = 10)
+MDD_df_log = reshape(MDD_df_log, idvar = c("Diagnosis","ID"), timevar = "IC",direction = "wide")
+colnames(MDD_df_log) = c("ID","Diagnosis",paste0("IC",1:10))
+
+mlDiagnosis = mlogit.data(MDD_df_log, choice = "Diagnosis", shape = "wide")
+Model = mlogit(Diagnosis~1|IC1+IC2+IC3+IC4+IC5+IC6+IC7+IC8, data = mlDiagnosis, reflevel = "HC")
+summary(Model)
+data.frame(exp(Model$coefficients))
+exp(confint(Model))
+
+mod_max = apply(Model$probabilities,1,max)
+Predicted_diagnosis = sapply(1:nrow(Model$probabilities), function(x) colnames(Model$probabilities)[match(mod_max[x], Model$probabilities[x,])])
+Actual_diagnosis = MDD_df_log$Diagnosis
+table(Predicted_diagnosis, Actual_diagnosis[1:1797])
+
+```
+
+```{r find correlations with different cognitive and neuropsychiatric measures}
+library(ggplot2)
+library(reshape2)
+library(readxl)
+library(corrplot)
+library(ppcor)
+
+
+or_scores = as.data.frame(read_xlsx("/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx"))
+
+# only include subjects that are found in both data sets
+inc_subs = or_scores$`Final ID` %in% sub_info[["ID"]]
+or_scores = or_scores[inc_subs,]
+
+inc_subs = sub_info[["ID"]] %in% or_scores$`Final ID`
+subjects_sources = subjects_sources[,inc_subs]
+sub_info = sub_info[inc_subs,]
+
+
+#Arrange scores by subjects_tpq$ID
+or_scores$ID = factor(or_scores$`Final ID`, levels = sub_info[["ID"]])
+or_scores = arrange(or_scores,ID)
+
+# fix BDI abd BAI NA values
+or_scores$`BDI II`[or_scores$`BDI II`=="NA"]=NA
+or_scores$BAI[or_scores$BAI=="NA"]=NA
+or_scores$MMSE[or_scores$MMSE=="NA"]=NA
+or_scores$`WAIS-R`[or_scores$`WAIS-R`=="NA"]=NA
+or_scores$Age[or_scores$Age=="NA"]=NA
+or_scores$`Years of Education`[or_scores$`Years of Education`=="NA"]=NA
+
+or_scores$`BDI II` = as.numeric(or_scores$`BDI II`)
+or_scores$BAI = as.numeric(or_scores$BAI)
+or_scores$MMSE = as.numeric(or_scores$MMSE)
+or_scores$`WAIS-R` = as.numeric(or_scores$`WAIS-R`)
+or_scores$Age = as.numeric(or_scores$Age)
+or_scores$`Years of Education` = as.numeric(or_scores$`Years of Education`)
+
+# Fix projections_all as you might need to it
+
+find_proj_cor <- function(Factor, Factor2=NA){
+  df_ref = projections_all_melted$Projection
+  df_1 = projections_all_melted[[Factor]]
+  if (is.na(Factor2)){
+    Cors = sapply(1:max_comp,function(i) cor.test(df_ref[projections_all_melted$IC==paste0("IC",i)],df_1[projections_all_melted$IC==paste0("IC",i)], method = "spearman"))
+  } else{
+    df_2 = projections_all_melted[[Factor2]]
+    cond = !is.na(df_ref+df_1+df_2)
+    Cors = sapply(1:max_comp,function(i) pcor.test(df_ref[projections_all_melted$IC==paste0("IC",i)&cond],df_1[projections_all_melted$IC==paste0("IC",i)&cond],df_2[projections_all_melted$IC==paste0("IC",i)&cond], method = "spearman"))
+  }
+
+  Cors = sapply(1:max_comp,function(x) c(Cors[,x]$p.value,Cors[,x]$estimate))
+  dimnames(Cors) = list(valuename = c("p.value","estimate"),ICs = paste0("IC",1:max_comp))
+  return(Cors)
+}
+projections_all = projections_all[inc_subs,]
+projections_all[,9:23] = as.data.frame(apply(projections_all[,9:23], 2, as.numeric))
+projections_all$BDI = or_scores$`BDI II`
+projections_all$BAI = or_scores$BAI
+projections_all$MMSE = or_scores$MMSE
+projections_all$WAISR = or_scores$`WAIS-R`
+projections_all$Age = or_scores$Age
+projections_all$Edu = or_scores$`Years of Education`
+
+projections_all_melted = melt(projections_all, id.vars = c("ID","BDI","BAI","MMSE","WAISR","Age","Edu"), measure.vars = paste0("IC",1:max_comp), variable.name = "IC", value.name = "Projection")
+find_proj_cor("BDI","BAI")[,(find_proj_cor("BDI","BAI")[1,]<0.005&abs(find_proj_cor("BDI","BAI")[2,])>0.1)]
+find_proj_cor("BAI","BDI")[,(find_proj_cor("BAI","BDI")[1,]<0.005&abs(find_proj_cor("BAI","BDI")[2,])>0.1)]
+
+find_proj_cor("WAISR","BDI")
+find_proj_cor("BAI","BDI")
+find_proj_cor("MMSE","BAI")
+find_proj_cor("Edu")[,(find_proj_cor("Edu")[1,]<0.005 & abs(find_proj_cor("Edu")[2,])>0.1)] # IC8
+find_proj_cor("Age","BAI")
+
+# plot sources in terms of groups
+# plot sources
+sources_melted = melt(subjects_sources, id.vars = "IC", value.name = "Source", variable.name = "Subject")
+sources_melted$Diagnosis = rep(sub_info$Diagnosies,each = max_comp)
+sources_melted$BDI = rep(or_scores$`BDI II`,each = max_comp)
+sources_melted$BAI = rep(or_scores$BAI,each = max_comp)
+sources_melted$MMSE = rep(or_scores$MMSE,each = max_comp)
+sources_melted$WAISR = rep(or_scores$`WAIS-R`,each = max_comp)
+sources_melted$Age = rep(or_scores$Age,each = max_comp)
+sources_melted$Edu = rep(or_scores$`Years of Education`,each = max_comp)
+
+find_source_cor <- function(Factor){
+  Cors = sapply(1:max_comp,function(i) cor.test(sources_melted$Source[sources_melted$IC==paste0("IC",i)],sources_melted[[Factor]][sources_melted$IC==paste0("IC",i)], method = "spearman"))
+  Cors = sapply(1:max_comp,function(x) c(Cors[,x]$p.value,Cors[,x]$estimate))
+  dimnames(Cors) = list(valuename = c("p.value","estimate"),ICs = paste0("IC",1:max_comp))
+  return(Cors)
+}
+
+find_cor("BDI")
+find_cor("BAI")
+find_cor("Edu")
+find_cor("WAISR")
+find_cor("MMSE")
+
+```
+
+
+```{r general view of all data}
+library(ggplot2)
+library(reshape2)
+df_sources_all = melt(sources_all[1:10,], variable.name = "Question", value.name = "Source")
+df_sources_all$IC = rep(paste0("IC",1:10),10)
+ggplot(df_sources_all, aes(x= Question, y = Source,group = IC))+
+  geom_bar(stat="identity")+
+  facet_wrap(~IC)
+
+
+# Let's have a look at MDD sources
+df_sources_mdd = melt(sources_mdd[1:10,], variable.name = "Question", value.name = "Source")
+df_sources_mdd$IC = rep(paste0("IC",1:10),10)
+ggplot(df_sources_mdd, aes(x= Question, y = Source,group = IC))+
+  geom_line()+
+  facet_wrap(~IC)
+
+g1
+
+# Now All_projections
+df_projections_all = melt(projections_all[,1:18],id.vars = colnames(projections_all)[1:8], measure.vars = colnames(projections_all)[9:18], variable.name = "IC", value.name = "Projection")
+df_projections_all$Projection = as.numeric(df_projections_all$Projection)
+ggplot(df_projections_all, aes(x= ID, y = Projection,group = IC, color = Diagnosis))+
+  geom_point()+
+  facet_wrap(~IC)
+
+
+# Now All_projections_MDD
+df_projections_mdd = melt(projections_mdd[,1:18],id.vars = colnames(projections_mdd)[1:8], measure.vars = colnames(projections_mdd)[9:18], variable.name = "IC", value.name = "Projection")
+df_projections_mdd$Projection = as.numeric(df_projections_mdd$Projection)
+ggplot(df_projections_mdd, aes(x= ID, y = Projection,group = IC, color = Diagnosis))+
+  geom_point()+
+  facet_wrap(~IC)
+
+#Subject_projection
+
+subjects_projections = melt(as.data.frame(py$subjects_projections), variable.name = "IC", value.name = "Projection")
+subjects_projections$Question = rep(paste0("Q",1:100),8)
+ggplot(subjects_projections, aes(x= Question, y = Projection,group = IC))+
+  geom_line()+
+  facet_wrap(IC~1)
+
+
+
+subjects_sources = melt(as.data.frame(py$subjects_sources), variable.name = "Subject", value.name = "Source")
+subjects_sources$IC = rep(paste0("IC",1:8),1822)
+subjects_sources$Diagnosis = rep(py$sub_info[["Diagnosies"]],each = 8)
+ggplot(subjects_sources, aes(x= Subject, y = Source,group = IC, color = Diagnosis))+
+  geom_point()+
+  facet_wrap(~IC)
+
+
+```
+
+
+```{r}
+
+
+
+
+
+
+
+
 ```

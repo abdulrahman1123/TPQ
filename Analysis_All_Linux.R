@@ -700,7 +700,10 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   Xs=round(Coefficients[1,1],digits = 4)
   for (i in 2:length(Coefficients[,1])){
     VAr_name = names(Coefficients[,1])[i]
-    factor_value = gsub("-"," - ",round(Coefficients[i,1],digits = 4))
+    L_coefficient = paste0("+",round(Coefficients[i,1],digits = 4))
+    factor_value = L_coefficient
+    factor_value = gsub("\\+-"," - ",L_coefficient)
+    factor_value = gsub("\\+"," \\+ ",factor_value)
     Xs = paste0(Xs,factor_value,"*",VAr_name)
   }
   #The y.value finder, which is the maximum count on the plot divided by 2, this is for plotting reasons
@@ -773,7 +776,7 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   PredMatrix=table(data_frame_essential$predicted.outcome,data_frame_essential$actual.outcome)
   #in case all cases are predicted to be 0 or 1, this will make PredMatrixa 1-row matrix. So, I will go through items one by one
   for (i in 1:length(rownames(PredMatrix))){
-    rownames(PredMatrix)[i]=gsub(rownames(PredMatrix)[i],paste0(rownames(PredMatrix),"(Predicted)"),rownames(PredMatrix)[i])
+    rownames(PredMatrix)[i]=gsub(rownames(PredMatrix)[i],paste0(rownames(PredMatrix)[i],"(Predicted)"),rownames(PredMatrix)[i])
   }
   colnames(PredMatrix)=c("0(Actual)","1(Actual)")
   
@@ -789,6 +792,7 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   return (DataList)
   
 }
+
 TypicalTheme=theme_bw(base_size = 16,base_family = "Amiri")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
                                                                   plot.subtitle = element_text(hjust = 0.5,face = "italic"))
 
