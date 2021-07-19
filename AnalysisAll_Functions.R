@@ -833,12 +833,14 @@ LogisticFunction = function(Model){
   #annotate(geom = "text", size=5,family="Amiri",x = 1.1, y = 10, label = GText_1, angle = 90)
   
 }
-#The second function adds the variable "returndata" which returns alot of information about the model.
-#I justo kept the original because I am afraid sth apeears to be wrong in the second modified one
-LogisticFunction = function(Model, returndata=FALSE){
-  Data=Model$data
+# Better function that returns dataframes representing logistic regression estimates and values, as well as plotting the result
+LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
+  #The Model is a logistic model (DV~IV1+IV2..., family = binomial())
+  Factor = as.character(Model$formula[[2]])
+  Data=Model$data[!is.na(Model$data[[Factor]]),]
   Summary=summary(Model)
   n.value=Model$df.null+1
+  Coefficients = Summary$coefficients
   
   #The improvement we got (change in deviance) after including predictors (baseline deviance - )
   modelChi = Model$null.deviance-Model$deviance 
@@ -849,7 +851,6 @@ LogisticFunction = function(Model, returndata=FALSE){
   #since it has a chisquare distribution, we can calculate significance
   chisq.prob=1-pchisq(modelChi, chidf)
   
-  #z.value=Summary$coefficients[2, 3]
   #r.value=sqrt((z.value^2 - 2*chidf)/Model$null.deviance)
   
   R2.hl = modelChi/Model$null.deviance
@@ -857,26 +858,27 @@ LogisticFunction = function(Model, returndata=FALSE){
   R2.n = R2.cs/(1-exp(-(Model$null.deviance/n.value)))
   
   #Odds ratio, upper and lower CI
-  odds=round(exp(Model$coefficients), digits = 3)
+  odds_ratio=round(exp(Model$coefficients), digits = 3)
   Lower.CI=round(exp(confint(Model))[, 1], digits = 3)
   Upper.CI=round(exp(confint(Model))[, 2], digits = 3)
   
   #Beta and SE
-  Beta=round(Summary$coefficients[, 1], digits = 3)
-  SE=round(Summary$coefficients[, 2], digits = 3)
+  Beta=round(Coefficients[, 1], digits = 3)
+  SE=round(Coefficients[, 2], digits = 3)
   
   #zvalues and p-values
-  Zvalues=round(Summary$coefficients[, 3], digits = 3)
-  Pvalues=round(Summary$coefficients[, 4], digits = 3)
+  Zvalues=round(Coefficients[, 3], digits = 3)
+  Pvalues=round(Coefficients[, 4], digits = 3)
   
   PredictedVar = Data[[as.character(Model$formula[[2]])]]
+  PredictedVarName = as.character(Model$formula[[2]])
   Predictors=as.character(Model$formula[3])
   
-  FirstLevel=levels(PredictedVar)[2]
   BaseLevel=levels(PredictedVar)[1]
+  FirstLevel=levels(PredictedVar)[2]
   
-  Data $ predicted.probability <-fitted(Model)
-  Data $ predicted.outcome <-ifelse(fitted(Model)<0.5, BaseLevel, FirstLevel)
+  Data$predicted.probability <-fitted(Model)
+  Data$predicted.outcome <-ifelse(fitted(Model)<Threshold, BaseLevel, FirstLevel)
   
   TruePositive=nrow(Data[(PredictedVar==FirstLevel&Data$predicted.outcome==FirstLevel), ])
   FalsePositive=nrow(Data[(PredictedVar==BaseLevel&Data$predicted.outcome==FirstLevel), ])
@@ -888,16 +890,20 @@ LogisticFunction = function(Model, returndata=FALSE){
   PPV=round(TruePositive/(TruePositive+FalsePositive), digits=3)
   NPV=round(TrueNegative/(TrueNegative+FalseNegative), digits=3)
   
-  #print(cat("TruePositive = ", TruePositive))
-  #print(cat("FalsePositive =", FalsePositive))
-  #print(cat("TrueNegative = ", TrueNegative))
-  #print(cat("FalseNegative = ", FalseNegative))
   
-  
-  #The y.value finder, which is the maximum count on the plot divided by 2
+  Xs=round(Coefficients[1,1],digits = 4)
+  for (i in 2:length(Coefficients[,1])){
+    VAr_name = names(Coefficients[,1])[i]
+    L_coefficient = paste0("+",round(Coefficients[i,1],digits = 4))
+    factor_value = L_coefficient
+    factor_value = gsub("\\+-"," - ",L_coefficient)
+    factor_value = gsub("\\+"," \\+ ",factor_value)
+    Xs = paste0(Xs,factor_value,"*",VAr_name)
+  }
+  #The y.value finder, which is the maximum count on the plot divided by 2, this is for plotting reasons
   TList=NULL
-  for (i in 0:50){
-    interval=c((i-0.5)*0.02, (i+0.5)*0.02)
+  for (i in 0:20){
+    interval=c((i-0.5)*0.05, (i+0.5)*0.05)
     Num=sum((Data$predicted.probability>interval[1]&Data$predicted.probability<interval[2]))
     TList=append(TList, Num)
   }
@@ -908,35 +914,79 @@ LogisticFunction = function(Model, returndata=FALSE){
   #Data $ dfbeta <-dfbeta(Model)
   #Data $ dffit <-dffits(Model)
   #Data $ leverage <-hatvalues(Model)
-  BaseLevel
-  FirstLevel
+  #BaseLevel
+  #FirstLevel
+  
   GText_0=paste("Specificity =", (100*Specificity), "%  || ", "NPV =", (100*NPV), "%")
   GText_1=paste("Sensitivity =", (100*Sensitivity), "%  || ", "PPV =", (100*PPV), "%")
   
   Title = paste("Logistic Regression Function for", as.character(Model$formula[[2]]))
   Subtitle= paste("As Predicted by", Predictors)
-  Drawing=ggplot(Data, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.02, color="black")+
-    scale_fill_manual(name="Group", values=c("#08457E", "#FBEC5D"))+TypicalTheme+geom_vline(xintercept = 0.5)+
-    scale_x_continuous(limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+
-    annotate(geom = "text", size=5, family="Amiri", x = 0.25, y = y.value*2.1, label = paste("Predicted to be", BaseLevel))+
-    annotate(geom = "text", size=5, family="Amiri", x = 0.75, y = y.value*2.1, label = paste("Predicted to be", FirstLevel))+
-    annotate(geom = "text", size=5, family="Amiri", x = 0, y = y.value, label = GText_0, angle = 90)+
-    annotate(geom = "text", size=5, family="Amiri", x = 1, y = y.value, label = GText_1, angle = 90)+
-    ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")+
-    scale_x_continuous("Predicted Probability", breaks = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))
+  if (plt_type == "histogram"){
+    Drawing=ggplot(Data, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.02, color="black")+
+      scale_fill_manual(name="Group", values=c("#08457E", "#FBEC5D"))+TypicalTheme+geom_vline(xintercept = Threshold)+
+      scale_x_continuous("Predicted Probability",limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+
+      annotate(geom = "text", size=5, family="Amiri", x = (Threshold/2), y = y.value*2.1, label = paste("Predicted to be", BaseLevel))+
+      annotate(geom = "text", size=5, family="Amiri", x = ((1+Threshold)/2), y = y.value*2.1, label = paste("Predicted to be", FirstLevel))+
+      annotate(geom = "text", size=5, family="Amiri", x = 0, y = y.value, label = GText_0, angle = 90)+
+      annotate(geom = "text", size=5, family="Amiri", x = 1, y = y.value, label = GText_1, angle = 90)+
+      ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")
+  } else if (plt_type == "glm"){
+    if (length(strsplit(Predictors,"+",fixed = TRUE)[[1]])==1){
+      Data$Values = Data[[Predictors]]
+      PredictedLevels = levels(Data[[PredictedVarName]])
+      Data$PredictedFactor = as.character(Data[[PredictedVarName]])
+      Data$PredictedFactor[Data$PredictedFactor==PredictedLevels[1]]=0
+      Data$PredictedFactor[Data$PredictedFactor==PredictedLevels[2]]=1
+      Data$PredictedFactor = as.numeric(Data$PredictedFactor)
+      Drawing =ggplot(data = Data,mapping= aes(x = Values, y=PredictedFactor))+
+        geom_jitter(shape = 21, color = "#7c0a02", fill="white",size = 4,width = 0.1, height = 0)+
+        stat_smooth(method = "glm", method.args = list(family = "binomial"),se=F,color="#7c0a02",size=4)+
+        scale_y_continuous(name = PredictedVarName,breaks=c(0,1), labels= c(levels(Data[[PredictedVarName]])[1],levels(Data[[PredictedVarName]])[2]))+
+        scale_x_continuous(name = Predictors)+
+        ggtitle(Title,subtitle = Subtitle)+
+        TypicalTheme
+    }else{
+      Drawing = ("Can't draw glm smoothed figure when there is more than one predictor")
+    }
+  }
+  
   #ggplot(Data, aes(x=predicted.probability, fill=Cured))+geom_bar(color="black")+scale_fill_manual(values=c("#08457E", "#FBEC5D"))+
   #scale_x_continuous(limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+TypicalTheme+geom_vline(xintercept = 0.5)+
   #annotate(geom = "text", size=5, family="Amiri", x = -0.1, y = 10, label = GText_0, angle = 90)+
   #annotate(geom = "text", size=5, family="Amiri", x = 1.1, y = 10, label = GText_1, angle = 90)
-  LogValues=data.frame(Beta, SE, Lower.CI, odds, Upper.CI, Zvalues, Pvalues)
-  DerivedValues=data.frame(chisq=modelChi, df=chidf, p.value.chi=chisq.prob, r2.hl=R2.hl, r2.cs=R2.cs, r2.n=R2.n, sensitivity=Sensitivity, specificity=Specificity)
-  DataList=list(log.values=LogValues, derived.values=DerivedValues)
-  if (returndata==TRUE){
-    return (DataList)
-  }else{
-    return(Drawing)  
+  
+  #Create a dataframe that contains only the needed data
+  data_frame_essential = data.frame(predicted.probability= Data$predicted.probability,
+                                    predicted.outcome = Data$predicted.outcome,
+                                    actual.outcome = Data[[PredictedVarName]])
+  
+  for (i in 2:length(as.character(Model$formula[[3]]))){
+    local_factor= as.character(Model$formula[[3]])[i]
+    data_frame_essential[[local_factor]]=Data[[local_factor]]
   }
+  
+  #Create prediction matrix
+  PredMatrix=table(data_frame_essential$predicted.outcome,data_frame_essential$actual.outcome)
+  #in case all cases are predicted to be 0 or 1, this will make PredMatrixa 1-row matrix. So, I will go through items one by one
+  for (i in 1:length(rownames(PredMatrix))){
+    rownames(PredMatrix)[i]=gsub(rownames(PredMatrix)[i],paste0(rownames(PredMatrix)[i],"(Predicted)"),rownames(PredMatrix)[i])
+  }
+  colnames(PredMatrix)=c("0(Actual)","1(Actual)")
+  
+  LogValues=data.frame(Beta, SE, Lower.CI, odds_ratio, Upper.CI, Zvalues, Pvalues)
+  DerivedValues=data.frame(chisq=modelChi, df=chidf, p.value.chi=chisq.prob, r2.hl=R2.hl, r2.cs=R2.cs, r2.n=R2.n, sensitivity=Sensitivity, specificity=Specificity)
+  DataList=list(data_frame = data_frame_essential,
+                log.values=LogValues, derived.values=DerivedValues,
+                prob.formula = paste("Probability of Y occuring = ","1/(1 + e ^ -(",Xs,")",sep = ""),
+                PredMatrix = PredMatrix)
+  
+  print (Drawing)
+  
+  return (DataList)
+  
 }
+
 
 FindAnova <- function(EZAnova,Transpose = TRUE){
   #note: the anova must be detailed (detailed=TRUE)
