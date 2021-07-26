@@ -14,6 +14,11 @@ library(ggthemes)
 #################################                                             ################################
 ##############################################################################################################
 windowsFonts(Times=windowsFont("Amiri"))
+TypicalTheme=theme_bw(base_size = 16,base_family = "Amiri")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
+                                                                  plot.subtitle = element_text(hjust = 0.5,face = "italic"))
+
+MinimalTheme=theme_minimal(base_size = 18,base_family = "Amiri")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
+                                                                       plot.subtitle = element_text(hjust = 0.5,face = "italic"))
 
 CPalette=c("#00A550","#Eb4C42","#0087BD",NA,"#C33E3B","#4EA3DF","#6cBE58","#808CA3","#B9B0AB",NA,"#B768A2",
            "#FFD800","#E25822",NA,"#FF3800","#1B4D3E","#003153",NA,"#008000","#CC0000","#08457E",NA,
@@ -792,13 +797,6 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   return (DataList)
   
 }
-
-TypicalTheme=theme_bw(base_size = 16,base_family = "Amiri")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
-                                                                  plot.subtitle = element_text(hjust = 0.5,face = "italic"))
-
-MinimalTheme=theme_minimal(base_size = 18,base_family = "Amiri")+theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5),
-                                                                       plot.subtitle = element_text(hjust = 0.5,face = "italic"))
-
 
 
 
