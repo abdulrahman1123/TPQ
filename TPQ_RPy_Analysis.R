@@ -3,6 +3,8 @@
 
 library(reshape2)
 library(ggplot2)
+library(labelled)
+library(corrplot)
 
 library(reticulate)
 library(readxl)
@@ -102,6 +104,20 @@ prepare_icasso <- function(npz_tpq_path){
   return (df_list)
 }
 
+# Create a reconstructed data using all 15 ICs
+npz_tpq_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz')
+results_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD/icasso-results_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz')
+npz_tpq = np$load(npz_tpq_path, allow_pickle=TRUE)
+npz_results = np$load(results_path, allow_pickle=TRUE)
+sources = npz_results["sources"]
+sources = sources[1:15,]
+
+icasso = npz_tpq['icasso'][[1]]
+unmixing = icasso$get_centrotype_unmixing()# of shape: [n_cluster, n_chan]
+unmixing = unmixing[1:15,]
+All_reco=np$transpose(icasso$ica2data(sources, unmixing, idx_keep=0:14))
+All_reco = All_reco[npz_tpq["IDs"] %in% or_scores$`Final ID`,]
+
 
 # define paths for variuos decompositions
 all_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz')
@@ -196,7 +212,7 @@ simplify_mat <- function(sources_Cor){
       abs(sources_Cor[IC, ]) == max(abs(sources_Cor[IC, ]))
     
     IC_df2 = colnames(sources_Cor)[max_cor_IC]
-    Cor_value = round(sources_Cor[IC, max_cor_IC], digits = 3)
+    Cor_value = round(sources_Cor[IC, max_cor_IC], digits = 2)
     if (sum(max_cor_IC) == 0) {
       final_matrix[, i] = c(NA, NA, NA)
     } else{
@@ -261,7 +277,7 @@ tnp_sources = ICASSO_tnp$sources
 
 
 # Create the matrix of correlations' estimates
-est_threshold = 0.7
+est_threshold = 0.3
 AllFAST_sources_Cor = df_cor(ref_sources, fast_sources, "All_Fast", 10,10,est_threshold,Projection = FALSE)
 AllFASTSK_sources_Cor = df_cor(ref_sources, fastsk_sources, "All_Fast_SK", 10,10,est_threshold,Projection = FALSE)
 HC_sources_Cor = df_cor(ref_sources, hc_sources, "HC", 10,10,est_threshold,Projection = FALSE)
@@ -338,6 +354,72 @@ ggplot(all_sources_melted[!(all_sources_melted$Group == "All_fast" | all_sources
   geom_text(aes(x=-8,y=-5,label = IC_group_plot))+
   geom_text(aes(x= -2,y=-5,label = Cor_plot))
 
+
+# Addition: To make it like the projections plot, I will scale the values and sort them by group
+# and add a point of minimal value
+all_sources_melted$Sources_zero = all_sources_melted$Sources_group
+
+for (IC in paste0("IC",1:10)){
+  for (Group in levels(all_sources_melted$Group)){
+    subgroup_cond = all_sources_melted$Group ==Group & all_sources_melted$IC_all == IC
+    pro_val = all_sources_melted$Sources_group[subgroup_cond]
+    all_sources_melted$Sources_group_scaled[subgroup_cond] = pro_val/mean(abs(pro_val), na.rm = TRUE)
+    min_value = min(abs(all_sources_melted$Sources_group_scaled[subgroup_cond]))
+    all_sources_melted$Sources_zero[subgroup_cond][abs(all_sources_melted$Sources_group_scaled)[subgroup_cond] != min_value] = NA
+  }
+}
+
+all_sources_melted$Sources_zero[!is.na(all_sources_melted$Sources_zero)] = all_sources_melted$Sources_group_scaled[!is.na(all_sources_melted$Sources_zero)]
+all_sources_melted$Sources_all_scaled = rep(all_sources_melted$Sources_group_scaled[all_sources_melted$Group == "All"],8)
+all_sources_melted$Sources_sorted_all = rep(all_sources_melted$Sources_sorted[all_sources_melted$Group == "All"],8)
+all_sources_melted$Sources_sorted_all[is.na(all_sources_melted$Sources_sorted)] = NA
+all_sources_melted$Sources_all_scaled[is.na(all_sources_melted$Sources_group_scaled)] = NA
+
+for (IC in paste0("IC",1:10)){
+  for (Group in levels(all_sources_melted$Group)){
+    subgroup_cond = all_sources_melted$Group ==Group & all_sources_melted$IC_all == IC 
+    all_sources_melted$Sources_sorted[subgroup_cond] = match(all_sources_melted$Sources_group_scaled[subgroup_cond], sort(all_sources_melted$Sources_group_scaled[subgroup_cond]))
+  }
+}
+
+sources_melted_all = all_sources_melted[(all_sources_melted$Group =="All" | all_sources_melted$Group =="All_fast" | all_sources_melted$Group =="All_fastsk"),]
+sources_melted_all$IC_Fast = sources_melted_all$IC_group_plot[sources_melted_all$Group == "All_fast"]
+sources_melted_all$IC_Fastsk = sources_melted_all$IC_group_plot[sources_melted_all$Group == "All_fastsk"]
+sources_melted_all$Cor_Fast = sources_melted_all$Cor_plot[sources_melted_all$Group == "All_fast"]
+sources_melted_all$Cor_Fastsk = sources_melted_all$Cor_plot[sources_melted_all$Group == "All_fastsk"]
+
+all_sources_melted_dia = melt(all_sources_melted, measure.vars = c("Sources_all_scaled","Sources_group_scaled"), variable.name = "Sources_type", value.name = "Sources_scaled")
+all_sources_melted_dia = all_sources_melted_dia[(all_sources_melted_dia$Group !="All" & all_sources_melted_dia$Group !="All_fast"& all_sources_melted_dia$Group !="All_fastsk"),]
+all_sources_melted_dia$Sources_type = as.character(all_sources_melted_dia$Sources_type)
+all_sources_melted_dia$Sources_type[all_sources_melted_dia$Sources_type == "Sources_all_scaled"] = "Combined"
+all_sources_melted_dia$Sources_type[all_sources_melted_dia$Sources_type == "Sources_group_scaled"] = "Separate"
+
+ggplot(data = all_sources_melted_dia, mapping = aes(x = Sources_sorted_all,y=Sources_type))+
+  geom_raster(aes(fill = Sources_scaled))+
+  scale_x_continuous("Sorted Questions")+
+  scale_y_discrete("Decomposition Type")+
+  scale_fill_gradientn(colors = c("#02422f","#1B4D3E","#FFFFFF","#85015d","#69026b"), name = "Scaled\nScores    ")+
+  facet_grid(IC_all~Group, scale = "free")+
+  geom_text(aes(x= 5,y=2.25,label = IC_group_plot))+
+  geom_text(aes(x= 5,y=1.75,label = Cor_plot))+
+  ggtitle("Sources Per Diagnosis Per IC", subtitle = "- Scaled by dividing on the mean of absolute values
+          - Arranged by values of the \'Combined\' decompoistion
+          - Each IC in the \'Separate\' decomposition represents the most correlating IC with the \'Combined\' decomposition
+          - The name of the most correlating IC from the separate group and its value of correlation are on the left")+
+  MinimalTheme
+
+ggplot(data = sources_melted_all, mapping = aes(x = Sources_sorted_all,y= Group))+
+  geom_raster(aes(fill = Sources_group_scaled))+
+  scale_x_continuous("Sorted Subjects")+
+  scale_y_discrete("Decomposition Type")+
+  scale_fill_gradientn(colors = c("#02422f","#1B4D3E","#FFFFFF","#85015d","#69026b"), name = "Scaled\nScores")+
+  facet_grid(IC_all~., scale = "free")+
+  geom_text(aes(x= 5,y=2.25,label = IC_Fast))+
+  geom_text(aes(x= 5,y=1.75,label = Cor_Fast))+
+  geom_text(aes(x= 5,y=3.25,label = IC_Fastsk))+
+  geom_text(aes(x= 5,y=2.75,label = Cor_Fastsk))+
+  ggtitle("Sources Per Decomposition Type")+
+  MinimalTheme
 
 # Correlations Between Projections of Different Data Decompositions -------
 
@@ -552,25 +634,35 @@ for (Factor in levels(projections_melted$Diagnosis)){
   for (IC in paste0("IC",1:10)){
     for (Group in levels(projections_melted$Grouping)){
       projection_grouping = projections_melted$Projection[projections_melted$IC == IC &
-                                                     projections_melted$Diagnosis == Factor &
-                                                     projections_melted$Grouping == Group]
+                                                            projections_melted$Diagnosis == Factor &
+                                                            projections_melted$Grouping == Group]
       projections_melted$Sort[projections_melted$IC == IC &
-                              projections_melted$Diagnosis == Factor &
-                              projections_melted$Grouping == Group] = match(projection_grouping, sort(projection_grouping))
+                                projections_melted$Diagnosis == Factor &
+                                projections_melted$Grouping == Group] = match(projection_grouping, sort(projection_grouping))
     }
   }
 }
 
+# Do a sorting for each of the All-subject decomposition
+for (IC in paste0("IC",1:10)){
+  for (Group in levels(projections_melted$Grouping)){
+    projection_grouping = projections_melted$Projection[projections_melted$IC == IC &
+                                                          projections_melted$Grouping == Group]
+    projections_melted$Sort_main[projections_melted$IC == IC &
+                              projections_melted$Grouping == Group] = match(projection_grouping, sort(projection_grouping))
+  }
+}
+
+
 # Some sort values are similar in two subjects (if they have exactly the same value). Fix this
 for (k in 1:2){
-  for (Factor in levels(projections_melted$Diagnosis)){
-    for (IC in paste0("IC",1:10)){
-      for (Group in levels(projections_melted$Grouping)){
+  for (IC in paste0("IC",1:10)){
+    for (Group in levels(projections_melted$Grouping)){
+      for (Factor in levels(projections_melted$Diagnosis)){
         Sorting_Cond = projections_melted$Diagnosis== Factor & projections_melted$Grouping == Group & projections_melted$IC == IC
         for (i in 1:length(projections_melted$Sort[Sorting_Cond])){
           if (sum (projections_melted$Sort[Sorting_Cond] == projections_melted$Sort[Sorting_Cond][i]) >1){
             projections_melted$Sort[Sorting_Cond][i] = projections_melted$Sort[Sorting_Cond][i]+1
-            print(projections_melted$Sort[Sorting_Cond][i])
           }
         }
       }
@@ -578,15 +670,27 @@ for (k in 1:2){
   }
 }
 
-
-
+for (k in 1:2){
+  for (IC in paste0("IC",1:10)){
+    for (Group in levels(projections_melted$Grouping)){
+      Sorting_Cond = projections_melted$Grouping == Group & projections_melted$IC == IC
+      for (i in 1:length(projections_melted$Sort_main[Sorting_Cond])){
+        if (sum (projections_melted$Sort_main[Sorting_Cond] == projections_melted$Sort_main[Sorting_Cond][i]) >1){
+          projections_melted$Sort_main[Sorting_Cond][i] = projections_melted$Sort_main[Sorting_Cond][i]+1
+          print(c(IC,Group,projections_melted$Sort_main[Sorting_Cond][i]))
+        }
+      }
+    }
+  }
+}
 
 # add a variable to include only the close-to-zero values
 projections_melted$Projection_zero = projections_melted$Projection
+projections_melted$Projection_zero_main = projections_melted$Projection
 
-for (Diagnosis in levels(projections_melted$Diagnosis)){
-  for (Group in levels(factor(projections_melted$Grouping))){
-    for (IC in levels(projections_melted$IC)){
+for (Group in levels(factor(projections_melted$Grouping))){
+  for (IC in levels(projections_melted$IC)){
+    for (Diagnosis in levels(projections_melted$Diagnosis)){
       subgroup_cond = projections_melted$Grouping==Group & projections_melted$IC==IC & projections_melted$Diagnosis==Diagnosis
       pro_val = projections_melted$Projection[subgroup_cond]
       projections_melted$Projection_scaled[subgroup_cond] = pro_val/mean(abs(pro_val), na.rm = TRUE)
@@ -596,6 +700,17 @@ for (Diagnosis in levels(projections_melted$Diagnosis)){
   }
 }
 
+projections_melted$Projection_zero[!is.na(projections_melted$Projection_zero)] = projections_melted$Projection_scaled[!is.na(projections_melted$Projection_zero)]
+
+for (Group in levels(factor(projections_melted$Grouping))){
+  for (IC in levels(projections_melted$IC)){
+    subgroup_cond = projections_melted$Grouping==Group & projections_melted$IC==IC
+    pro_val = projections_melted$Projection[subgroup_cond]
+    projections_melted$Projection_scaled_main[subgroup_cond] = pro_val/mean(abs(pro_val), na.rm = TRUE)
+    min_value = min(abs(projections_melted$Projection_scaled_main[subgroup_cond]))
+    projections_melted$Projection_zero_main[subgroup_cond][abs(projections_melted$Projection_scaled_main)[subgroup_cond] != min_value] = NA
+  }
+}
 
 # Change the IC designation to match that of the highest correlation for each IC from the all-subjects decompoisition
 
@@ -615,41 +730,90 @@ for (ICn in 1:10){
 
 
 
-for (Factor in levels(projections_melted$Diagnosis)) {
-  for (IC in paste0("IC", 1:10)) {
-    for (Group in c("All_Fast", "All_Fast_Sickit", "Separate")) {
-      cond_all_ic = (projections_melted$IC == IC & projections_melted$Diagnosis == Factor & projections_melted$Grouping == Group)
-      new_ic = projections_melted$IC_group[cond_all_ic][1]
-      cond_new_ic = (projections_melted$IC == new_ic & projections_melted$Diagnosis == Factor & projections_melted$Grouping == Group)
-
-      projections_melted$Projections_group[cond_all_ic] = projections_melted$Projection[cond_new_ic]
-      projections_melted$Projections_scaled_group[cond_all_ic] = projections_melted$Projection_scaled[cond_new_ic]
-      projections_melted$Sort_group[cond_all_ic] = projections_melted$Sort[cond_new_ic]
-      projections_melted$Projection_zero_group[cond_all_ic] = projections_melted$Projection_zero[cond_new_ic]
-    }
+for (IC in paste0("IC", 1:10)) {
+  for (Factor in levels(projections_melted$Diagnosis)) {
+    cond_all_ic = (projections_melted$IC == IC & projections_melted$Diagnosis == Factor & projections_melted$Grouping == "Separate")
+    new_ic = projections_melted$IC_group[cond_all_ic][1]
+    cond_new_ic = (projections_melted$IC == new_ic & projections_melted$Diagnosis == Factor & projections_melted$Grouping == "Separate")
+    cond_new_ic_all = (projections_melted$IC == IC & projections_melted$Diagnosis == Factor & projections_melted$Grouping == "Combined")
+    
+    projections_melted$Projections_group[cond_all_ic] = projections_melted$Projection[cond_new_ic]
+    projections_melted$Projections_all[cond_all_ic] = projections_melted$Projection[cond_new_ic_all] # Projection value from the Combined grouping that has most correlation with this projection in the "Separate" Grouping
+    projections_melted$Projections_scaled_group[cond_all_ic] = projections_melted$Projection_scaled[cond_new_ic]
+    projections_melted$Sort_group[cond_all_ic] = projections_melted$Sort[cond_new_ic]
+    projections_melted$Projection_zero_group[cond_all_ic] = projections_melted$Projection_zero[cond_new_ic]
   }
+  cond_ic_fast = (projections_melted$IC == IC & projections_melted$Grouping == "All_Fast")
+  cond_ic_fastsk = (projections_melted$IC == IC & projections_melted$Grouping == "All_Fast_Sickit")
+  new_ic_fast = projections_melted$IC_group[cond_ic_fast][1]
+  new_ic_fastsk = projections_melted$IC_group[cond_ic_fastsk][1]
+  cond_new_ic_fast = (projections_melted$IC == new_ic_fast & projections_melted$Grouping == "All_Fast")
+  cond_new_ic_fastsk = (projections_melted$IC == new_ic_fastsk & projections_melted$Grouping == "All_Fast_Sickit")
+  cond_new_ic_fast_all = (projections_melted$IC == IC & projections_melted$Grouping == "Combined")
+  cond_new_ic_fastsk_all = (projections_melted$IC == IC & projections_melted$Grouping == "Combined")
+  
+  
+  projections_melted$Projections_group[cond_ic_fast] = projections_melted$Projection[cond_new_ic_fast]
+  projections_melted$Projections_group[cond_ic_fastsk] = projections_melted$Projection[cond_new_ic_fastsk]
+  
+  projections_melted$Projections_all[cond_ic_fast] = projections_melted$Projection[cond_new_ic_fast_all]
+  projections_melted$Projections_all[cond_ic_fastsk] = projections_melted$Projection[cond_new_ic_fastsk_all]
+  
+  projections_melted$Projections_scaled_group_main[cond_ic_fast] = projections_melted$Projection_scaled_main[cond_new_ic_fast]
+  projections_melted$Projections_scaled_group_main[cond_ic_fastsk] = projections_melted$Projection_scaled_main[cond_new_ic_fastsk]
+
+  projections_melted$Sort_main_group[cond_ic_fast] = projections_melted$Sort_main[cond_new_ic_fast]
+  projections_melted$Sort_main_group[cond_ic_fastsk] = projections_melted$Sort_main[cond_new_ic_fastsk]
+  
+  projections_melted$Sort_main_diagnosis[cond_ic_fast] = projections_melted$Sort[cond_new_ic_fast]
+  projections_melted$Sort_main_diagnosis[cond_ic_fastsk] = projections_melted$Sort[cond_new_ic_fastsk]
+
+  projections_melted$Projection_zero_group_main[cond_ic_fast] = projections_melted$Projection_zero_main[cond_new_ic_fast]
+  projections_melted$Projection_zero_group_main[cond_ic_fastsk] = projections_melted$Projection_zero_main[cond_new_ic_fastsk]
 }
 
+var_label(projections_melted$Projections_all) <- "Projections of this 'IC' in the 'Combined' Grouping"
+var_label(projections_melted$Projections_group) <- "Projections of the 'IC_group' in this Grouping"
+
+projections_melted$Projections_all[projections_melted$Grouping == "Combined"] = projections_melted$Projection[projections_melted$Grouping == "Combined"]
 projections_melted$Projections_scaled_group[projections_melted$Grouping == "Combined"] = projections_melted$Projection_scaled[projections_melted$Grouping == "Combined"]
 projections_melted$Projections_group[projections_melted$Grouping == "Combined"] = projections_melted$Projection[projections_melted$Grouping == "Combined"]
 projections_melted$Sort_group[projections_melted$Grouping == "Combined"] = projections_melted$Sort[projections_melted$Grouping == "Combined"]
-projections_melted$Projections_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "Separate"])] = NA
-projections_melted$Projections_scaled_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "Separate"])] = NA
-projections_melted$Sort_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "Separate"])] = NA
+projections_melted$Sort_main_group[projections_melted$Grouping == "Combined"] = projections_melted$Sort_main[projections_melted$Grouping == "Combined"]
+projections_melted$Sort_main_diagnosis[projections_melted$Grouping == "Combined"] = projections_melted$Sort[projections_melted$Grouping == "Combined"]
+projections_melted$Sort_main_diagnosis[projections_melted$Grouping == "Separate"] = projections_melted$Sort_group[projections_melted$Grouping == "Separate"]
+
+#projections_melted$Projections_scaled_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "Separate"])] = NA
+#projections_melted$Projections_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "Separate"])] = NA
+#projections_melted$Sort_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "Separate"])] = NA
+
+projections_melted$Projections_scaled_group_main[projections_melted$Grouping == "Combined"] = projections_melted$Projection_scaled_main[projections_melted$Grouping == "Combined"]
+projections_melted$Projections_scaled_group_main[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "All_Fast"])] = NA
+projections_melted$Projections_scaled_group_main[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "All_Fast"])] = NA
+projections_melted$Sort_main_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "All_Fast"])] = NA
+projections_melted$Sort_main_group[projections_melted$Grouping == "Combined" & is.na(projections_melted$Projections_group[projections_melted$Grouping == "All_Fast_Sickit"])] = NA
+
 projections_melted$Projection_zero_group[projections_melted$Grouping == "Combined"] = projections_melted$Projection_zero[projections_melted$Grouping == "Combined"]
+
+
 # remove all IC designations, except for the first one, for plotting purposes
 # find the indices to keep
 Fast_inds = 18190 + seq(from = 1, to=1819*10, by = 1819)
 FastSK_inds = 18190*2 + seq(from = 1, to=1819*10, by = 1819)
 HC_indices = 18190*3 + seq(from = 1, to=1819*10, by = 1819)
-MDD_indices = HC_indices + nrow(projections_melted[projections_melted$Diagnosis == "HC",])/20
-PTSD_indices = MDD_indices + nrow(projections_melted[projections_melted$Diagnosis == "MDD",])/20
-TNP_indices = PTSD_indices + nrow(projections_melted[projections_melted$Diagnosis == "PTSD",])/20
-GAD_indices = TNP_indices + nrow(projections_melted[projections_melted$Diagnosis == "TNP",])/20
+MDD_indices = HC_indices + nrow(projections_melted[projections_melted$Diagnosis == "HC",])/40
+PTSD_indices = MDD_indices + nrow(projections_melted[projections_melted$Diagnosis == "MDD",])/40
+TNP_indices = PTSD_indices + nrow(projections_melted[projections_melted$Diagnosis == "PTSD",])/40
+GAD_indices = TNP_indices + nrow(projections_melted[projections_melted$Diagnosis == "TNP",])/40
 Inc_inds = c(Fast_inds, FastSK_inds, HC_indices, MDD_indices, PTSD_indices, TNP_indices, GAD_indices)
-projections_melted$IC_group[-Inc_inds] = NA
-projections_melted$Cor_arranged[-Inc_inds] = NA
+projections_melted$IC_group_plot = projections_melted$IC_group
+projections_melted$Cor_arranged_plot = projections_melted$Cor_arranged
+projections_melted$IC_group_plot[-Inc_inds] = NA
+projections_melted$Cor_arranged_plot[-Inc_inds] = NA
 
+# make sure that IC_group is not empty when Grouping == "Combined"
+projections_melted$IC_group[projections_melted$Grouping == "Combined"] = as.character(projections_melted$IC[projections_melted$Grouping == "Combined"])
+projections_melted$IC_group = factor(projections_melted$IC_group, levels = paste0("IC",1:10))
 
 # Finally make a df for diagnoses alone, and one for the three methods of IC decomposition (Infomax, fast, and fast_sickit)
 projections_melted_dia = projections_melted[(projections_melted$Grouping == "Combined" | projections_melted$Grouping == "Separate"),]
@@ -673,36 +837,54 @@ ggplot(data = projections_melted_dia, mapping = aes(x = Sort_group,y= Grouping))
   geom_point(data = projections_melted_dia[!is.na(projections_melted_dia$Projection_zero_group),], aes(color = Projection_zero_group))+
   scale_color_gradient2(high = "black", mid = "black", low = "black", name = "Zero", labels = c())+
   facet_grid(IC~Diagnosis, scale = "free")+
-  ggtitle("Projection Values Per Diagnosis Per IC", subtitle = "")+
+  ggtitle("Projection Values Per Diagnosis Per IC", subtitle = "- Scaled by dividing on the mean of absolute values
+          - Each IC in the \'Separate\' decomposition represents the most correlating IC with the \'Combined\' decomposition
+          - The Dot represents the zero value for that IC")+
   MinimalTheme
 
-ggplot(data = projections_melted_dia, mapping = aes(x = Sort_group,y= Grouping))+
+projections_melted_dia$Sort_group_comb = rep(projections_melted_dia$Sort_group[projections_melted_dia$Grouping == "Combined"],2)
+projections_melted_dia$Diagnosis = factor(projections_melted_dia$Diagnosis, levels = c("HC","GAD","MDD","PTSD","TNP"))
+ggplot(data = projections_melted_dia, mapping = aes(x = Sort_group_comb,y= Grouping))+
   geom_raster(aes(fill = Projections_scaled_group))+
   scale_x_continuous("Sorted Subjects")+
   scale_y_discrete("Decomposition Type")+
   scale_fill_gradient2(high = "#a10000",mid = "white", low = "#002138", midpoint = 0, name = "Scaled\nProjection")+
-  geom_point(data = projections_melted_dia[!is.na(projections_melted_dia$Projection_zero_group),], aes(color = Projection_zero_group))+
-  scale_color_gradient2(high = "black", mid = "black", low = "black", name = "Zero", labels = c())+
   facet_grid(IC~Diagnosis, scale = "free")+
-  geom_text(aes(x= 3,y=2.25,label = IC_group))+
-  geom_text(aes(x= 3,y=1.75,label = Cor_arranged))+
-  ggtitle("Projection Values Per Diagnosis Per IC", subtitle = "Scaled by dividing on the mean of absolute values")+
+  geom_text(aes(x= 3,y=2.25,label = IC_group_plot))+
+  geom_text(aes(x= 3,y=1.75,label = Cor_arranged_plot))+
+  ggtitle("Projection Values Per Diagnosis Per IC", subtitle = "- Scaled by dividing on the mean of absolute values
+          - Arranged by values of the \'Combined\' decompoistion
+          - Each IC in the \'Separate\' decomposition represents the most correlating IC with the \'Combined\' decomposition
+          - The name of the most correlating IC from the separate group and its value of correlation are on the left")+
   MinimalTheme
 
 
-# Todo: make an all sorting variable
-ggplot(data = projections_melted_all, mapping = aes(x = Sort_group,y= Grouping))+
-  geom_raster(aes(fill = Projections_scaled_group))+
+# Todo: make an all sorting variable, also make projections_group not NA for All
+projections_melted_all$IC_group_Fast_Sickit = NA
+projections_melted_all$IC_group_Fast = NA
+projections_melted_all$IC_group_Fast_Sickit[projections_melted_all$Grouping != "All_Fast"] = projections_melted_all$IC_group_plot[projections_melted_all$Grouping != "All_Fast"]
+projections_melted_all$IC_group_Fast[projections_melted_all$Grouping != "All_Fast_Sickit"] = projections_melted_all$IC_group_plot[projections_melted_all$Grouping != "All_Fast_Sickit"]
+
+projections_melted_all$Cor_arranged_Fast_Sickit = NA
+projections_melted_all$Cor_arranged_Fast = NA
+projections_melted_all$Cor_arranged_Fast_Sickit[projections_melted_all$Grouping != "All_Fast"] = projections_melted_all$Cor_arranged_plot[projections_melted_all$Grouping != "All_Fast"]
+projections_melted_all$Cor_arranged_Fast[projections_melted_all$Grouping != "All_Fast_Sickit"] = projections_melted_all$Cor_arranged_plot[projections_melted_all$Grouping != "All_Fast_Sickit"]
+
+projections_melted_all$Sort_main_group_comb = rep(projections_melted_all$Sort_main_group[projections_melted_all$Grouping == "Combined"],3)
+
+ggplot(data = projections_melted_all, mapping = aes(x = Sort_main_group_comb,y= Grouping))+
+  geom_raster(aes(fill = Projections_scaled_group_main))+
   scale_x_continuous("Sorted Subjects")+
   scale_y_discrete("Decomposition Type")+
   scale_fill_gradient2(high = "#a10000",mid = "white", low = "#002138", midpoint = 0, name = "Scaled\nProjection")+
-  geom_point(data = projections_melted_all[!is.na(projections_melted_all$Projection_zero_group),], aes(color = Projection_zero_group))+
-  scale_color_gradient2(high = "black", mid = "black", low = "black", name = "Zero", labels = c())+
-  facet_grid(IC~Grouping, scale = "free")+
-  geom_text(aes(x= 3,y=2.25,label = IC_group))+
-  geom_text(aes(x= 3,y=1.75,label = Cor_arranged))+
-  ggtitle("Projection Values Per Diagnosis Per IC", subtitle = "Scaled by dividing on the mean of absolute values")+
+  facet_grid(IC~., scale = "free")+
+  geom_text(aes(x= 3,y=2.25,label = IC_group_Fast))+
+  geom_text(aes(x= 3,y=3.25,label = IC_group_Fast_Sickit))+
+  geom_text(aes(x= 3,y=1.75,label = Cor_arranged_Fast))+
+  geom_text(aes(x= 3,y=2.75,label = Cor_arranged_Fast_Sickit))+
+  ggtitle("Projection Values Per Decomposition Type")+
   MinimalTheme
+
 
 
 # Plot the correlation figure
@@ -726,10 +908,701 @@ ggplot(data = projections_melted_cor, mapping = aes(x = Projections_group,y= Pro
   MinimalTheme+
   geom_smooth(method="lm", size=1, se = FALSE)+
   geom_text(aes(x= -0.1,y=0.25,label = IC_group))+
-  geom_text(aes(x= -0.1,y=-0.25,label = Cor_arranged))+
+  geom_text(aes(x= -0.1,y=-0.25,label = Cor_arranged_plot))+
   facet_grid(IC~Diagnosis, scale = "free")
   
-# Experiments -------------------------------------------------------------
+
+# Additional part: Present the data the way Juergen asked for. Use same data, just make it into a square
+# First, add a column to represent rows of the figure, basically a number close to the square root of subject count (43)
+# create a new sorting factor, which is basically the IDs arranged in the order of diagnosis
+
+projections_melted$ID = factor(projections_melted$ID, levels = projections_melted$ID[projections_melted$Grouping == "Combined" & projections_melted$IC == "IC1"])
+
+for (IC in paste0("IC",1:10)){
+#  for (Diagnosis in levels(projections_melted$Diagnosis)){
+    for (Grouping in levels(projections_melted$Grouping)){
+      cond = projections_melted$Grouping == Grouping & projections_melted$IC == IC
+      max_num = max(as.numeric(projections_melted$ID[cond]))
+      mat_seq = c(seq(from = 1, to = max_num, by = 45),max_num+1)
+      for (num in 2:length(mat_seq)){
+        projections_melted$row_seq[cond & as.numeric(projections_melted$ID)>mat_seq[num-1]-1 & as.numeric(projections_melted$ID)<(mat_seq[num])] = num-1
+        
+        #create a matched ID, that arranges the IDs by projection value
+        projections_melted$Sort_mod[cond&projections_melted$Diagnosis =="HC"] = projections_melted$Sort_main_diagnosis[cond&projections_melted$Diagnosis =="HC"]
+        projections_melted$Sort_mod[cond&projections_melted$Diagnosis =="MDD"] = projections_melted$Sort_main_diagnosis[cond&projections_melted$Diagnosis =="MDD"]+1202
+        projections_melted$Sort_mod[cond&projections_melted$Diagnosis =="PTSD"] = projections_melted$Sort_main_diagnosis[cond&projections_melted$Diagnosis =="PTSD"]+1654
+        projections_melted$Sort_mod[cond&projections_melted$Diagnosis =="TNP"] = projections_melted$Sort_main_diagnosis[cond&projections_melted$Diagnosis =="TNP"]+1711
+        projections_melted$Sort_mod[cond&projections_melted$Diagnosis =="GAD"] = projections_melted$Sort_main_diagnosis[cond&projections_melted$Diagnosis =="GAD"]+1789
+        projections_melted$row_seq_arr[cond & projections_melted$Sort_mod[cond]>mat_seq[num-1]-1 & projections_melted$Sort_mod[cond]<(mat_seq[num])] = num-1
+      }
+    }
+#  }
+}
+
+
+# now the columns
+projections_melted$col_seq = as.numeric(projections_melted$ID) - (45*(projections_melted$row_seq-1))
+projections_melted$col_seq_arr = projections_melted$Sort_mod - (45*(projections_melted$row_seq_arr-1))
+
+# I will create a separating line for each of the diagnoses
+for (i in 1:5){
+  lvl = c("HC","MDD","PTSD","TNP","GAD")[i]
+  projections_melted$row_seq[projections_melted$Diagnosis == lvl] = projections_melted$row_seq[projections_melted$Diagnosis == lvl]+i*3
+  projections_melted$row_seq_arr[projections_melted$Diagnosis == lvl] = projections_melted$row_seq_arr[projections_melted$Diagnosis == lvl]+i*3
+}
+
+plot_matrix <- function(Grouping, Group, scale_values=FALSE){
+  pro_data = projections_melted[(projections_melted$Grouping == Grouping),]
+  pro_data$Projections_group[is.na(pro_data$Projections_group)] = 0
+  
+  # make all IC projections of 0 mean and sd of 1
+  if (scale_values){
+    for (IC in paste0("IC",1:10)){
+      pro_data$Projections_group[pro_data$IC == IC] = (pro_data$Projections_group[pro_data$IC == IC]-
+                                                         mean(pro_data$Projections_group[pro_data$IC == IC]))/
+        sd(pro_data$Projections_group[pro_data$IC == IC])
+      
+      
+      if(sum(is.na(pro_data$Projections_group[pro_data$IC == IC])) < (182)){
+        estimate = ifelse(cor.test(pro_data$Projections_group[pro_data$IC == IC], pro_data$Projections_all[pro_data$IC == IC])$estimate>0,1,-1)
+        pro_data$Projections_group[pro_data$IC == IC] = pro_data$Projections_group[pro_data$IC == IC]*estimate
+        
+        if (estimate==-1){
+          for (Diagnosis in c("HC","MDD","PTSD","TNP","GAD")){
+            pro_data$Sort_main_diagnosis[pro_data$IC == IC & pro_data$Diagnosis ==Diagnosis] = 
+              min(pro_data$Sort_main_diagnosis[pro_data$IC == IC& pro_data$Diagnosis ==Diagnosis],na.rm = TRUE)+
+              max(pro_data$Sort_main_diagnosis[pro_data$IC == IC& pro_data$Diagnosis ==Diagnosis],na.rm = TRUE)-
+              pro_data$Sort_main_diagnosis[pro_data$IC == IC&pro_data$Diagnosis ==Diagnosis]
+          }
+          
+          max_num = max(as.numeric(pro_data$ID[pro_data$IC == IC]))
+          mat_seq = c(seq(from = 1, to = max_num, by = 45),max_num+1)
+          for (num in 2:length(mat_seq)){
+            #create a matched ID, that arranges the IDs by projection value
+            pro_data$Sort_mod[pro_data$IC == IC&pro_data$Diagnosis =="HC"] = pro_data$Sort_main_diagnosis[pro_data$IC == IC&pro_data$Diagnosis =="HC"]
+            pro_data$Sort_mod[pro_data$IC == IC&pro_data$Diagnosis =="MDD"] = pro_data$Sort_main_diagnosis[pro_data$IC == IC&pro_data$Diagnosis =="MDD"]+1202
+            pro_data$Sort_mod[pro_data$IC == IC&pro_data$Diagnosis =="PTSD"] = pro_data$Sort_main_diagnosis[pro_data$IC == IC&pro_data$Diagnosis =="PTSD"]+1654
+            pro_data$Sort_mod[pro_data$IC == IC&pro_data$Diagnosis =="TNP"] = pro_data$Sort_main_diagnosis[pro_data$IC == IC&pro_data$Diagnosis =="TNP"]+1711
+            pro_data$Sort_mod[pro_data$IC == IC&pro_data$Diagnosis =="GAD"] = pro_data$Sort_main_diagnosis[pro_data$IC == IC&pro_data$Diagnosis =="GAD"]+1789
+            pro_data$row_seq_arr[pro_data$IC == IC & pro_data$Sort_mod[pro_data$IC == IC]>mat_seq[num-1]-1 & pro_data$Sort_mod[pro_data$IC == IC]<(mat_seq[num])] = num-1
+          }
+          pro_data$col_seq_arr[pro_data$IC == IC] = pro_data$Sort_mod[pro_data$IC == IC] - (45*(pro_data$row_seq_arr[pro_data$IC == IC]-1))
+          for (i in 1:5){
+            lvl = c("HC","MDD","PTSD","TNP","GAD")[i]
+            pro_data$row_seq_arr[pro_data$IC == IC &pro_data$Diagnosis == lvl] = pro_data$row_seq_arr[pro_data$IC == IC &pro_data$Diagnosis == lvl]+i*3
+          }
+        }
+      }
+    }
+  }
+  pro_data$Projections_group[is.na(pro_data$Projections_group)] = 0
+  
+  
+  sources_data = sources_melted_all[(sources_melted_all$Group == Group),]
+  # make all IC sources of 0 mean and sd of 1
+  if (scale_values){
+    for (IC in paste0("IC",1:10)){
+      sources_data$Sources_group[sources_data$IC_all == IC] = (sources_data$Sources_group[sources_data$IC_all == IC]-
+                                                                 mean(sources_data$Sources_group[sources_data$IC_all == IC]))/
+        sd(sources_data$Sources_group[sources_data$IC_all == IC])
+      if(sum(is.na(sources_data$Sources_group[sources_data$IC_all == IC])) < (10)){
+        estimate = ifelse(cor.test(sources_data$Sources_group[sources_data$IC_all == IC], sources_data$Sources_all[sources_data$IC_all == IC])$estimate>0,1,-1)
+        sources_data$Sources_group[sources_data$IC_all == IC] = sources_data$Sources_group[sources_data$IC_all == IC]*estimate
+      }
+    }
+  }
+  sources_data$Question = factor(sources_data$Question, levels = paste0("Q",1:100))
+  
+  #make sure that IC_group is not empty (which is the case when sources_data$Group == "All")
+  sources_data$IC_group[sources_data$Group == Group] = as.character(sources_data$IC_all[sources_data$Group == Group])
+  sources_data$IC_group = factor(sources_data$IC_group, levels = paste0("IC",1:10))
+  
+  # make sure there are no NAs
+  sources_data$Sources_group[is.na(sources_data$Sources_group)] = 0
+  # for aesthetic purposes, I will remove those above 4
+  
+  if (scale_values){
+    sources_data$Sources_group[sources_data$Sources_group>4] = 4
+    sources_data$Sources_group[sources_data$Sources_group< (-4)] = -4
+    pro_data$Projections_group[pro_data$Projections_group>4] = 4
+    pro_data$Projections_group[pro_data$Projections_group< (-4)] = -4
+  }
+  
+  # create labels from the Diagnosis column, only the first of each group will be included
+  #First, create the True/False condition
+  dia_cond = unlist(sapply(c("HC","MDD","PTSD","TNP","GAD"), function(x) c(TRUE,rep(FALSE,sum(pro_data$Diagnosis == x)/10-1))))
+  
+  pro_labels = pro_data$Diagnosis
+  pro_labels_arr = pro_data$Diagnosis
+  
+  pro_labels[!dia_cond] = NA
+  pro_labels_arr[pro_data$Sort_main_diagnosis != 1]= NA
+  
+  
+  g1_1 = ggplot(pro_data[pro_data$IC %in% paste0("IC",1:5),], aes(x= col_seq, y=row_seq))+
+    geom_raster(aes(fill = Projections_group))+
+    scale_fill_gradientn(colors = c("#002138", "#FFFFFF","#a10000"), name = "Proj")+
+    geom_text(aes(x=0,label = pro_labels[pro_data$IC %in% paste0("IC",1:5)]),size=3,hjust = 1,vjust=0)+
+    scale_y_discrete("")+
+    scale_x_continuous("", limits = c(-4.5,45), breaks =NULL)+
+    facet_grid(IC~.,scales = "fixed")+
+    TypicalTheme#+theme(legend.position = "none")
+  
+  
+  g1_2 = ggplot(pro_data[pro_data$IC %in% paste0("IC",6:10),], aes(x= col_seq, y=row_seq))+
+    geom_raster(aes(fill = Projections_group))+
+    scale_fill_gradientn(colors = c("#002138", "#FFFFFF","#a10000"), name = "Proj")+
+    geom_text(aes(x=0,label = pro_labels[pro_data$IC %in% paste0("IC",6:10)]),size=3,hjust = 1,vjust=0)+
+    scale_y_discrete("")+
+    scale_x_continuous("", limits = c(-4.5,45), breaks =NULL)+
+    facet_grid(IC~.,scales = "fixed")+
+    TypicalTheme#+theme(legend.position = "none")
+  
+  g1_1_arr = ggplot(pro_data[pro_data$IC %in% paste0("IC",1:5),], aes(x= col_seq_arr, y=row_seq_arr))+
+    geom_raster(aes(fill = Projections_group))+
+    scale_fill_gradientn(colors = c("#002138", "#FFFFFF","#a10000"),  name = "Proj")+
+    geom_text(aes(x=0,label = pro_labels_arr[pro_data$IC %in% paste0("IC",1:5)]),size=3,hjust = 1,vjust=0)+
+    facet_grid(IC~.,scales = "fixed")+
+    scale_y_discrete("")+
+    scale_x_continuous("", limits = c(-4.5,45), breaks = NULL)+
+    TypicalTheme#+ theme(legend.position = "none")
+  
+  g1_2_arr = ggplot(pro_data[pro_data$IC %in% paste0("IC",6:10),], aes(x= col_seq_arr, y=row_seq_arr))+
+    geom_raster(aes(fill = Projections_group))+
+    scale_fill_gradientn(colors = c("#002138", "#FFFFFF","#a10000"),name = "Proj")+
+    geom_text(aes(x=0,label = pro_labels_arr[pro_data$IC %in% paste0("IC",6:10)]),size=3,hjust = 1,vjust=0)+
+    facet_grid(IC~.,scales = "fixed")+
+    scale_y_discrete("")+
+    scale_x_continuous("", limits = c(-4.5,45), breaks = NULL)+
+    TypicalTheme#+theme(legend.position = "none")
+  
+  g2_1 = ggplot(data = sources_data[sources_data$IC_all %in% paste0("IC",1:5),], mapping = aes(x = Question,y= Sources_group))+
+    geom_bar(stat = "identity")+
+    scale_x_discrete("Question")+
+    scale_y_continuous("")+
+    scale_fill_gradientn(colors = c("#02422f","#1B4D3E","#FFFFFF","#85015d","#69026b"), name = "Scores")+
+    MinimalTheme+
+    facet_grid(IC_all~.,scales = "fixed")+
+    theme(axis.text.x = element_text(angle = 90,size=5))
+  
+  g2_2 = ggplot(data = sources_data[sources_data$IC_all %in% paste0("IC",6:10),], mapping = aes(x = Question,y= Sources_group))+
+    geom_bar(stat = "identity")+
+    scale_x_discrete("Question")+
+    scale_y_continuous("")+
+    scale_fill_gradientn(colors = c("#02422f","#1B4D3E","#FFFFFF","#85015d","#69026b"), name = "Scores")+
+    MinimalTheme+
+    facet_grid(IC_all~.,scales = "fixed")+
+    theme(axis.text.x = element_text(angle = 90,size=5))
+  
+  multiplot(g1_1,g2_1, g1_2, g2_2, cols = 4, layout = matrix(c(1,1,2,2,2,3,3,4,4,4), nrow = 1))
+  multiplot(g1_1_arr,g2_1, g1_2_arr, g2_2, cols = 4, layout = matrix(c(1,1,2,2,2,3,3,4,4,4), nrow = 1))
+}
+plot_matrix("Combined","All", scale_values = FALSE)
+plot_matrix("All_Fast","All_fast", scale_values = FALSE)
+plot_matrix("All_Fast_Sickit","All_fastsk", scale_values =FALSE)
+plot_matrix("Separate","All", scale_values = FALSE)
+
+ggplot(all_sources_melted_dia, aes(x=Question, y = Sources_group))+
+  geom_bar(stat = "identity")+
+  facet_grid(Group~IC_group)+
+  MinimalTheme
+
+### Find the Differences between ICs
+#First, make everything range from -1 to 1
+for(IC in paste0("IC",1:10)){
+  print(IC)
+  Grouping = "All_Fast_Sickit"
+  fast_projections = projections_melted$Projections_group[projections_melted$Grouping == "All_Fast" & projections_melted$IC == IC]
+  fastsk_projections = projections_melted$Projections_group[projections_melted$Grouping == "All_Fast_Sickit" & projections_melted$IC == IC]
+  
+  all_projections = projections_melted$Projections_all[projections_melted$Grouping == "All_Fast" & projections_melted$IC == IC]
+  print(mean(abs((fast_projections-all_projections)/fast_projections)))
+  if (IC!="IC2"){
+    # if the correlation is above 0, define the estimate as 1, otherwise as -1,
+    # this is done to reverse the values of negative correlations
+    estimate_fast = ifelse(cor.test(fast_projections, all_projections)$estimate>0,1,-1)
+    estimate_fastsk = ifelse(cor.test(fastsk_projections, all_projections)$estimate>0,1,-1)
+    
+    # convert everything to have a mean of 0 and sd of 1
+    all_projections = (all_projections-mean(all_projections))/sd(all_projections)
+    
+    fast_projections = estimate_fast*(fast_projections-mean(fast_projections))/sd(fast_projections)
+    fastsk_projections = estimate_fastsk*(fastsk_projections-mean(fastsk_projections))/sd(fastsk_projections)
+    
+    #(fast_projections-all_projections)/all_projections
+    print(mean(abs((fast_projections-all_projections)/fast_projections)))
+  }
+  
+}
+
+dd = data.frame(fast = fast_projections, fastsk = fastsk_projections, all = all_projections, fast_dif = (all_projections-fast_projections))
+ggplot(dd, aes(x= all,y = fast))+
+  geom_point()
+
+
+
+# Now for the sources
+IC = "IC1"
+Grouping = "All_fast"
+group_sources = sources_melted_all$Sources_group[sources_melted_all$Group == Grouping & sources_melted_all$IC_all == IC]
+all_sources = sources_melted_all$Sources_all[sources_melted_all$Group == Grouping & sources_melted_all$IC_all == IC]
+
+# if the correlation is above 0, define the estimate as 1, otherwise as -1,
+# this is done to reverse the values of negative correlations
+estimate = ifelse(cor.test(group_sources, all_sources)$estimate>0,1,-1)
+
+# convert everything to have a mean of 0 and sd of 1
+all_sources = (all_sources-mean(all_sources))/sd(all_sources)
+group_sources = estimate*(group_sources-mean(group_sources))/sd(group_sources)
+mean(abs(all_sources))
+mean(abs(all_sources-group_sources))
+dd = data.frame(group = group_sources, all = all_sources)
+ggplot(dd, aes(x= all,y = group))+
+  scale_fill_gradientn(colors = c("#002138", "#FFFFFF","#a10000"), name = "Proj")
+
+# Combine sources and projections analyses --------------------------------
+
+
+ref_sources = ICASSO_all$sources
+fast_sources = ICASSO_all_fast$sources
+fastsk_sources = ICASSO_all_fastsk$sources
+hc_sources = ICASSO_hc$sources
+gad_sources = ICASSO_gad$sources
+mdd_sources = ICASSO_mdd$sources
+ptsd_sources = ICASSO_ptsd$sources
+tnp_sources = ICASSO_tnp$sources
+
+
+# Create the matrix of correlations' estimates
+est_threshold = 0.3
+HC_sources_Cor = df_cor(ref_sources, hc_sources, "HC", 10,10,est_threshold,Projection = FALSE)
+GAD_sources_Cor = df_cor(ref_sources, gad_sources, "GAD", 10,10,est_threshold,Projection = FALSE)
+MDD_sources_Cor = df_cor(ref_sources, mdd_sources, "MDD", 10,10,est_threshold,Projection = FALSE)
+PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, "PTSD", 10,10,est_threshold,Projection = FALSE)
+TNP_sources_Cor = df_cor(ref_sources, tnp_sources, "TNP", 10,10,est_threshold,Projection = FALSE)
+
+
+HC_projections_Cor = df_cor(ref_projections, hc_projections, "HC", 10,10,est_threshold,Projection = TRUE)
+GAD_projections_Cor = df_cor(ref_projections, gad_projections, "GAD", 10,10,est_threshold,Projection = TRUE)
+MDD_projections_Cor = df_cor(ref_projections, mdd_projections, "MDD", 10,10,est_threshold,Projection = TRUE)
+PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, "PTSD", 10,10,est_threshold,Projection = TRUE)
+TNP_projections_Cor = df_cor(ref_projections, tnp_projections, "TNP", 10,10,est_threshold,Projection = TRUE)
+
+HC_sources_ICs = simplify_mat(HC_sources_Cor)
+GAD_sources_ICs = simplify_mat(GAD_sources_Cor)
+MDD_sources_ICs = simplify_mat(MDD_sources_Cor)
+PTSD_sources_ICs = simplify_mat(PTSD_sources_Cor)
+TNP_sources_ICs = simplify_mat(TNP_sources_Cor)
+
+
+HC_projections_ICs = simplify_mat(HC_projections_Cor)
+GAD_projections_ICs = simplify_mat(GAD_projections_Cor)
+MDD_projections_ICs = simplify_mat(MDD_projections_Cor)
+PTSD_projections_ICs = simplify_mat(PTSD_projections_Cor)
+TNP_projections_ICs = simplify_mat(TNP_projections_Cor)
+
+All_ICs = data.frame(IC_all = rep(paste0("IC",1:10),10),
+                     Diagnosis = rep(c("HC","GAD","MDD","PTSD", "TNP"), each = 10),
+                     Type = rep(c("Sources","Projections"),each = 50),
+                     IC=c(HC_sources_ICs[2,],GAD_sources_ICs[2,],MDD_sources_ICs[2,],PTSD_sources_ICs[2,],TNP_sources_ICs[2,],
+                          HC_projections_ICs[2,],GAD_projections_ICs[2,],MDD_projections_ICs[2,],PTSD_projections_ICs[2,],TNP_projections_ICs[2,]),
+                     Cor=as.numeric(c(HC_sources_ICs[3,],GAD_sources_ICs[3,],MDD_sources_ICs[3,],PTSD_sources_ICs[3,],TNP_sources_ICs[3,],
+                                      HC_projections_ICs[3,],GAD_projections_ICs[3,],MDD_projections_ICs[3,],PTSD_projections_ICs[3,],TNP_projections_ICs[3,])))
+All_ICs$IC = as.character(All_ICs$IC)
+All_ICs$IC[rep(All_ICs$IC[All_ICs$Type == "Sources"] != All_ICs$IC[All_ICs$Type == "Projections"],2)]=NA
+All_ICs$IC[rep(is.na(All_ICs$IC[All_ICs$Type == "Sources"]),2)]=NA
+All_ICs$IC[rep(is.na(All_ICs$IC[All_ICs$Type == "Projections"]),2)]=NA
+All_ICs$IC = factor(All_ICs$IC,levels = paste0("IC",1:10))
+
+All_ICs$Cor[is.na(All_ICs$IC)]=NA
+All_ICs$IC_all = factor(All_ICs$IC_all,levels = paste0("IC",1:10))
+
+All_ICs_wide = reshape(All_ICs[1:50,1:4], idvar = c("Diagnosis","Type"), timevar = "IC_all", direction = "wide")
+colnames(All_ICs_wide) = c("Diagnosis", "Type", paste0("IC",1:10))
+
+ggplot(data = All_ICs[All_ICs$Type == "Sources",], mapping = aes(x = 1,y= Type))+
+  geom_text(aes(y=1,label = IC))+
+  geom_text(aes(y=0,label = Cor))+
+  facet_grid(IC_all~Diagnosis)+
+  TypicalTheme+
+  scale_y_discrete("IC")+
+  scale_x_discrete("Diagnosis")+
+  theme(axis.text.y=element_blank(),axis.text.x=element_blank(), axis.ticks.y=element_blank())+
+  ggtitle("ICs with Most Correlations from the Separate-Group Decomposition", subtitle = "All Correlations are with a p-value of <0.0005 and Spearman rho >0.3")
+
+
+# Choose Questions --------------------------------------------------------
+
+
+ref_sources = ICASSO_all$sources
+fast_sources = ICASSO_all_fast$sources
+fastsk_sources = ICASSO_all_fastsk$sources
+hc_sources = ICASSO_hc$sources
+gad_sources = ICASSO_gad$sources
+mdd_sources = ICASSO_mdd$sources
+ptsd_sources = ICASSO_ptsd$sources
+tnp_sources = ICASSO_tnp$sources
+
+# Create the matrix of correlations' estimates
+est_threshold = 0.3
+HC_sources_Cor = df_cor(ref_sources, hc_sources, "HC", 10,10,est_threshold,Projection = FALSE)
+GAD_sources_Cor = df_cor(ref_sources, gad_sources, "GAD", 10,10,est_threshold,Projection = FALSE)
+MDD_sources_Cor = df_cor(ref_sources, mdd_sources, "MDD", 10,10,est_threshold,Projection = FALSE)
+PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, "PTSD", 10,10,est_threshold,Projection = FALSE)
+TNP_sources_Cor = df_cor(ref_sources, tnp_sources, "TNP", 10,10,est_threshold,Projection = FALSE)
+
+
+HC_sources_ICs = simplify_mat(HC_sources_Cor)
+GAD_sources_ICs = simplify_mat(GAD_sources_Cor)
+MDD_sources_ICs = simplify_mat(MDD_sources_Cor)
+PTSD_sources_ICs = simplify_mat(PTSD_sources_Cor)
+TNP_sources_ICs = simplify_mat(TNP_sources_Cor)
+
+
+All_ICs = data.frame(IC_all = rep(paste0("IC",1:10),10),
+                     Diagnosis = rep(c("HC","GAD","MDD","PTSD", "TNP"), each = 10),
+                     Type = rep(c("Sources","Projections"),each = 50),
+                     IC=c(HC_sources_ICs[2,],GAD_sources_ICs[2,],MDD_sources_ICs[2,],PTSD_sources_ICs[2,],TNP_sources_ICs[2,],
+                          HC_projections_ICs[2,],GAD_projections_ICs[2,],MDD_projections_ICs[2,],PTSD_projections_ICs[2,],TNP_projections_ICs[2,]),
+                     Cor=as.numeric(c(HC_sources_ICs[3,],GAD_sources_ICs[3,],MDD_sources_ICs[3,],PTSD_sources_ICs[3,],TNP_sources_ICs[3,],
+                                      HC_projections_ICs[3,],GAD_projections_ICs[3,],MDD_projections_ICs[3,],PTSD_projections_ICs[3,],TNP_projections_ICs[3,])))
+All_ICs$IC = as.character(All_ICs$IC)
+All_ICs$IC[rep(All_ICs$IC[All_ICs$Type == "Sources"] != All_ICs$IC[All_ICs$Type == "Projections"],2)]=NA
+All_ICs$IC[rep(is.na(All_ICs$IC[All_ICs$Type == "Sources"]),2)]=NA
+All_ICs$IC[rep(is.na(All_ICs$IC[All_ICs$Type == "Projections"]),2)]=NA
+All_ICs$IC = factor(All_ICs$IC,levels = paste0("IC",1:10))
+
+All_ICs$Cor[is.na(All_ICs$IC)]=NA
+All_ICs$IC_all = factor(All_ICs$IC_all,levels = paste0("IC",1:10))
+
+All_ICs_wide = reshape(All_ICs[1:50,1:4], idvar = c("Diagnosis","Type"), timevar = "IC_all", direction = "wide")
+colnames(All_ICs_wide) = c("Diagnosis", "Type", paste0("IC",1:10))
+
+
+# Prepare the data frame
+
+all_sources = data.frame(
+  IC_all = rep(paste0("IC", 1:10), 100),
+  All = melt(ref_sources[1:10, ])$value,
+  All_fast = melt(fast_sources[1:10, ])$value,
+  All_fastsk = melt(fastsk_sources[1:10, ])$value,
+  HC = melt(hc_sources[1:10, ])$value,
+  GAD = melt(gad_sources[1:10, ])$value,
+  MDD = melt(mdd_sources[1:10, ])$value,
+  PTSD = melt(ptsd_sources[1:10, ])$value,
+  TNP = melt(tnp_sources[1:10, ])$value
+)
+
+# Create the final data frames that is ready for plotting
+all_sources$Question = rep(paste0("Q",1:100),each = 10)
+all_sources_melted = melt(all_sources, id.vars = c("Question","IC_all"), value.name = "Source", variable.name = "Group")
+
+all_sources_melted$IC_group = NA
+
+
+all_sources_melted = shuffle_ICs(all_sources_melted, AllFAST_sources_ICs[,!is.na(AllFAST_sources_ICs[2,])],"All_fast")
+all_sources_melted = shuffle_ICs(all_sources_melted, AllFASTSK_sources_ICs[,!is.na(AllFASTSK_sources_ICs[2,])],"All_fastsk")
+all_sources_melted = shuffle_ICs(all_sources_melted, HC_sources_ICs[,!is.na(HC_sources_ICs[2,])],"HC")
+all_sources_melted = shuffle_ICs(all_sources_melted, GAD_sources_ICs[,!is.na(GAD_sources_ICs[2,])],"GAD")
+all_sources_melted = shuffle_ICs(all_sources_melted, PTSD_sources_ICs[,!is.na(PTSD_sources_ICs[2,])],"PTSD")
+all_sources_melted = shuffle_ICs(all_sources_melted, TNP_sources_ICs[,!is.na(TNP_sources_ICs[2,])],"TNP")
+all_sources_melted = shuffle_ICs(all_sources_melted, MDD_sources_ICs[,!is.na(MDD_sources_ICs[2,])],"MDD")
+all_sources_melted$Sources_group[all_sources_melted$Group == "All"] = all_sources_melted$Source[all_sources_melted$Group == "All"]
+all_sources_melted$IC_group_plot = as.vector(sapply(1:8, function(x)
+  c(all_sources_melted$IC_group[all_sources_melted$Question == "Q1"][((x - 1) * 10 + 1):(x * 10)], rep(NA, 990))))
+
+# Add correlation values only for one question (10 values, 1 per IC),for plotting purposes
+all_sources_melted$Cor_plot = c(
+  rep(NA, 1000),
+  c(AllFAST_sources_ICs[3, ], rep(NA, 990)),
+  c(AllFASTSK_sources_ICs[3, ], rep(NA, 990)),
+  c(HC_sources_ICs[3, ], rep(NA, 990)),
+  c(GAD_sources_ICs[3, ], rep(NA, 990)),
+  c(MDD_sources_ICs[3, ], rep(NA, 990)),
+  c(PTSD_sources_ICs[3, ], rep(NA, 990)),
+  c(TNP_sources_ICs[3, ], rep(NA, 990))
+)
+
+all_sources_melted$IC_all = factor(all_sources_melted$IC_all, levels = paste0("IC",1:10))
+all_sources_melted$Sources_all = rep(all_sources_melted$Sources[all_sources_melted$Group=="All"],nlevels(all_sources_melted$Group))
+all_sources_melted$IC_group[all_sources_melted$Group == "All"]=as.character(all_sources_melted$IC_all[all_sources_melted$Group == "All"])
+all_sources_melted$IC_group = factor(all_sources_melted$IC_group, levels = paste0("IC",1:10))
+
+all_sources_melted$Sources_high = all_sources_melted$Sources_group
+for (IC in all_sources_melted$IC_group){
+  SS = all_sources_melted$Sources_group[all_sources_melted$IC_group == IC]
+  qq = quantile(abs(SS),0.85, na.rm = TRUE)
+  all_sources_melted$Sources_high[all_sources_melted$IC_group == IC & abs(all_sources_melted$Sources_group) < qq] = NA
+}
+df_plot = all_sources_melted[(all_sources_melted$Group!="All" & all_sources_melted$Group!="All_fast" & all_sources_melted$Group!="All_fastsk"),]
+df_plot$IC_group = factor(df_plot$IC_group, levels = paste0("IC",1:10))
+
+ggplot(df_plot, aes(x=Question, y= Sources_group))+
+  geom_bar(stat = "identity")+
+  facet_grid(Group~IC_all, scales =  "free")+
+  geom_text(aes(x=50,y=5, label = IC_group_plot))
+      
+
+
+
+
+# Logistic Regression for Diagnoses ------------------------------------------------------------
+
+# read projections data
+Projections = ICASSO_all$projections
+Projections = Projections[(Projections$Diagnosis == "MDD" | Projections$Diagnosis == "HC"),]
+Projections$Diagnosis = factor(Projections$Diagnosis, levels = c("HC","MDD"))
+
+
+corrplot::corrplot(cor(Projections[,paste0("IC",1:10)]))
+
+# Add "Sources_reconstructed
+Sources_reco = data.frame(All_reco)
+colnames(Sources_reco) = paste0("Q",1:100)
+Sources_reco$Diagnosis = ICASSO_all$projections$Diagnosis
+Sources_reco$ID = ICASSO_all$projections$ID
+Sources_reco = Sources_reco[as.character(Sources_reco$ID) %in% as.character(Projections$ID),]
+Sources_reco$Diagnosis = factor(Sources_reco$Diagnosis, levels=c("HC","MDD"))
+corrplot::corrplot(cor(Sources_reco[,paste0("Q",1:100)]))
+
+# read TPQ data
+ex_dir = '/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx'
+TPQ = as.data.frame(read_excel(ex_dir))
+
+# convert all Questions to numeric
+TPQ[,paste0("Q",1:100)] = apply(TPQ[,paste0("Q",1:100)],2, as.numeric)
+
+# recalculate main dimensions, because they are not calculated by default
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+for (item in names(TPQQuestions)){
+  # convert Question values (0s and 1s) to numeric
+  TPQ[,paste0("Q",TPQQuestions[[item]])] = apply(TPQ[,paste0("Q",TPQQuestions[[item]])],2,as.numeric)
+  
+  # convret Question answers (T and F) to numeric
+  TPQ[,paste0("QO",TPQQuestions[[item]])][TPQ[,paste0("QO",TPQQuestions[[item]])] == "T"]=1
+  TPQ[,paste0("QO",TPQQuestions[[item]])][TPQ[,paste0("QO",TPQQuestions[[item]])] == "F"]=0
+  TPQ[,paste0("QO",TPQQuestions[[item]])]= apply(TPQ[,paste0("QO",TPQQuestions[[item]])], 2, as.numeric)
+  
+  # calculate Cloninger's subscales as suggested by Cloninger (some answers are flipped)
+  TPQ[[item]]=apply(TPQ[,paste0("Q",TPQQuestions[[item]])], 1,sum, na.rm = TRUE)
+
+  # calculate Cloninger's subscales by just summing True values (because the values given to Jurgen were not flipped,
+  # so, I will calculate a Data-driven equivalent for these subscales)
+  TPQ[[paste0("O_",item)]]=apply(TPQ[,paste0("QO",TPQQuestions[[item]])], 1,sum, na.rm = TRUE)
+}
+
+# Make sure that TPQ includes the same subjects as the "Projections" data set, and no NAs are included
+TPQ = TPQ[as.character(TPQ$`Final ID`) %in% as.character(Projections$ID),]
+TPQ$Diagnosis = factor(TPQ$Diagnosis, levels = c("HC","MDD"))
+
+# check correlation between all dimensions
+Main_dim = c("NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")
+subscales = c("NS1","NS2","NS3","NS4","HA1","HA2","HA3","HA4","RD1","RD2","RD3","RD4")
+subscales_or = paste0("O_",subscales)
+scales = c("NS","HA","RD")
+scales_or = paste0("O_",scales)
+included_questions =paste0("Q",1:100)
+included_questions = included_questions[included_questions!="Q61"&included_questions!="Q71"]
+
+
+# prepare a data frame with only questions and scales of original data, plus the data driven subscales
+Sources = ICASSO_all$sources
+melted_s = melt(Sources)
+melted_s$IC = factor(melted_s$IC, levels = paste0("IC",1:15))
+Sources_w = tidyr::spread(melted_s, IC, value)
+
+Sources_w[,2:16]= ifelse(abs(Sources_w[,2:16])>0.75,1,0)
+q_num = as.numeric(substr(Sources_w$variable,2,nchar(as.character(Sources_w$variable))))
+for(i in 1:12){
+  subscale = names(TPQQuestions)[i]
+  Sources_w$subscale[q_num %in% TPQQuestions[[i]]] = subscale
+}
+Sources_l = melt(Sources_w, id.vars = c("variable","subscale"), variable.name = "IC", value.name = "IC_loading")
+ggplot(Sources_l, aes(x=subscale,y=IC_loading))+
+  geom_bar(stat = "identity")+
+  facet_grid(IC~.)
+
+
+TPQ_source = TPQ[,c(paste0("QO",1:100),subscales_or)]
+
+for (item in paste0("IC",1:15)){
+  cor(Sources_w[[item]])
+}
+######
+
+corrplot::corrplot(cor(TPQ[,Main_dim]))
+corrplot::corrplot(cor(cbind(TPQ[,subscales], Projections[,paste0("IC",1:10)])))
+
+corrplot::corrplot(cor(cbind(TPQ[,subscales_or], Projections[,paste0("IC",1:10)])))
+
+Combined_data = cbind(TPQ[,subscales], Projections[,paste0("IC",1:10)])
+Combined_data_or = cbind(TPQ[,subscales_or], Projections[,paste0("IC",1:10)])
+
+corrplot::corrplot(cor(Combined_data))
+corrplot::corrplot(cor(Combined_data_or))
+
+cor_mat = matrix(rep(c(0),120), nrow = 10)
+p_mat = matrix(rep(c(0),120), nrow = 10)
+rownames(cor_mat) = paste0("IC",1:10)
+colnames(cor_mat)= subscales
+rownames(p_mat) = paste0("IC",1:10)
+colnames(p_mat)= subscales
+
+for (i in 1:10){
+  IC =paste0("IC",1:10)[i]
+  IC_p = sapply(subscales,function(item) cor.test(Combined_data[[item]],Combined_data[[IC]], method = "spearman")$p.value)
+  est =  sapply(subscales,function(item) cor.test(Combined_data[[item]],Combined_data[[IC]], method = "spearman")$estimate)
+  cor_mat[i,] = est
+  p_mat[i,] = IC_p
+}
+corrplot::corrplot(
+  cor_mat,
+  method = "number",
+  p.mat = p_mat,
+  sig.level = 0.005,
+  insig = "blank",
+  title = "\n\nCorrelations Between Cloninger's and Data-Driven Decomposition of TPQ\nSpearman Rho Values for Significant Results Only"
+)
+
+
+for (i in 1:10){
+  IC =paste0("IC",1:10)[i]
+  IC_p = sapply(subscales_or,function(item) cor.test(Combined_data_or[[item]],Combined_data_or[[IC]], method = "spearman")$p.value)
+  est =  sapply(subscales_or,function(item) cor.test(Combined_data_or[[item]],Combined_data_or[[IC]], method = "spearman")$estimate)
+  cor_mat[i,] = est
+  p_mat[i,] = IC_p
+}
+corrplot::corrplot(
+  cor_mat,
+  method = "number",
+  p.mat = p_mat,
+  sig.level = 0.0005,
+  insig = "blank",
+  title = "\n\nCorrelations Between Cloninger's and Data-Driven Decomposition of TPQ\nSpearman Rho Values for Significant Results Only"
+)
+
+# Now we do the subject groups
+
+
+# create a projections glm model
+Form = as.formula(paste0("Diagnosis ~ ",paste0("IC",1:10,collapse =  "+")))
+ModelProjections = glm(Form, data = Projections, family = binomial())
+#ModelProjections = step(ModelProjections,direction = "back")
+summary(ModelProjections)
+LogisticFunction(ModelData, plt_type = "histogram", Threshold = 0.5)
+ProjectionsPE = cv.glm(data = Projections ,ModelProjections ,K=10)$delta[2]
+print(paste("IC Model accuracy based on 10 fold cv = ", 100*(1-round(ProjectionsPE,3)),"%"))
+
+# create Sources-reconstructed glm model
+Form = as.formula(paste0("Diagnosis ~ ",paste0("Q",1:100,collapse =  "+")))
+ModelSources = glm(Form, data = Sources_reco, family = binomial())
+#ModelSources = step(ModelSources,direction = "back")
+#ModelSources = glm(Diagnosis~ Q1 + Q2 + Q3 + Q4 + Q5 + Q6 + Q7 + Q8 + Q11 + Q12 + Q13 + Q14, data = Sources_reco, family = binomial())
+summary(ModelSources)
+LogisticFunction(ModelSources, plt_type = "histogram", Threshold = 0.5)
+SourcesPE = cv.glm(data = Sources_reco ,ModelSources ,K=10)$delta[2]
+print(paste("IC Model accuracy based on 10 fold cv = ", 100*(1-round(SourcesPE,3)),"%"))
+
+
+# Create a TPQ glm model
+Form = as.formula(paste0("Diagnosis ~ ",paste0(subscales,collapse =  "+")))
+ModelTPQ = glm(Form, data = TPQ, family = binomial())
+#ModelTPQ = step(ModelTPQ,direction = "back")
+summary(ModelTPQ)
+LogisticFunction(ModelTPQ, plt_type = "histogram", Threshold = 0.5)
+PETPE = cv.glm(data = TPQ ,ModelTPQ ,K=10)$delta[2]
+print(paste("TPQ Model accuracy based on 10 fold cv = ", 100*(1-round(PETPE,3)),"%"))
+
+# Create a TPQ questions glm model
+TPQ_NA = na.exclude(TPQ[,c("Diagnosis",included_questions)])
+Form = as.formula(paste0("Diagnosis ~ ",paste0(included_questions,collapse =  "+")))
+ModelQuestions = glm(Form, data = TPQ_NA, family = binomial())
+ModelQuestions = step(ModelQuestions,direction = "back")
+#BackQuestions = c("Q2", "Q3", "Q5", "Q7", "Q8", "Q9", "Q13", "Q18", "Q19", "Q22", "Q26", "Q38", "Q39", "Q40", "Q41", "Q43", "Q45", "Q46", "Q49", "Q51", "Q54", "Q55", "Q56", "Q57", "Q60", "Q62", "Q64", "Q66", "Q69", "Q75", "Q77", "Q83", "Q85", "Q86", "Q88", "Q92", "Q93", "Q95")
+#Form = as.formula(paste0("Diagnosis ~ ",paste0(BackQuestions,collapse =  "+")))
+#ModelQuestions = glm(Form, data = TPQ_NA, family = binomial())
+summary(ModelQuestions)
+LogisticFunction(ModelQuestions, plt_type = "histogram", Threshold = 0.5)
+
+# I will use the caret package to confirm the results
+library(caret)
+require(mlbench)
+
+Form = as.formula(paste0("Diagnosis ~ ",paste0("IC",1:10,collapse =  "+")))
+fitControl_data = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_data = train(Form, data = Projections, method = "glm", family = "binomial", trControl = fitControl_data)
+summary(mod_fitcv_data)
+confusionMatrix(table((mod_fitcv_data$pred)$pred, (mod_fitcv_data$pred)$obs))
+
+#Now for Sources
+
+Form = Diagnosis~ Q1 + Q2 + Q3 + Q4 + Q5 + Q6 + Q7 + Q8 + Q11 + Q12 + Q13 + Q14
+fitControl_data = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_data = train(Form, data = Sources_reco, method = "glm", family = "binomial", trControl = fitControl_data)
+summary(mod_fitcv_data)
+confusionMatrix(table((mod_fitcv_data$pred)$pred, (mod_fitcv_data$pred)$obs))
+
+
+# Now for Cloninger's TPQ
+Form = as.formula(paste0("Diagnosis ~ ",paste0(subscales,collapse =  "+")))
+fitControl_TPQ = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_TPQ = train(Form, data = TPQ, method = "glm", family = "binomial", trControl = fitControl_TPQ)
+summary(mod_fitcv_TPQ)
+confusionMatrix(table((mod_fitcv_TPQ$pred)$pred, (mod_fitcv_TPQ$pred)$obs))
+
+
+
+# Now for Questions
+BackQuestions = c("Q2", "Q3", "Q5", "Q7", "Q8", "Q9", "Q13", "Q18", "Q19", "Q22", "Q26", "Q38", "Q39", "Q40", "Q41", "Q43", "Q45", "Q46", "Q49", "Q51", "Q54", "Q55", "Q56", "Q57", "Q60", "Q62", "Q64", "Q66", "Q69", "Q75", "Q77", "Q83", "Q85", "Q86", "Q88", "Q92", "Q93", "Q95")
+Form = as.formula(paste0("Diagnosis ~ ",paste0(BackQuestions,collapse =  "+")))
+fitControl_Questions = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_Questions = train(Form, data = TPQ_NA, method = "glm", family = "binomial", trControl = fitControl_Questions)
+summary(mod_fitcv_Questions)
+confusionMatrix(table((mod_fitcv_Questions$pred)$pred, (mod_fitcv_Questions$pred)$obs))
+
+# Apparently, the two "Accuracy" concepts are different. I will use this one as it seems better
+
+# Logistic Regression for Characters ------------------------------------------------------------
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+
+q_num = as.numeric(substr(sources_melted_all$Question,2,nchar(sources_melted_all$Question)))
+for(i in 1:12){
+  subscale = names(TPQQuestions)[i]
+  sources_melted_all$subscale[q_num %in% TPQQuestions[[i]]] = subscale
+}
+
+sources_melted_all$q_num = q_num
+
+
+# Experiments ------------------------------------------------------------
 
 # delete later
 #read valence data

@@ -87,13 +87,13 @@ set.seed(17)
 glm.fit=glm(mpg~horsepower,data=Auto)
 cv.glm(Auto ,glm.fit ,K=10)$delta[1]
 
-Data = read.csv("/home/asawalma/git/data_analysis/cv_trial.csv")
-Data$y = factor(Data$y)
+Data = read.csv("/home/asawalma/git/TPQ/cv_trial.csv")
+Data$y = factor(ifelse(Data$Diagnosis=="MDD","MDD","HC"))
 
 equation = "Data$y ~ "
-for (i in 1:length(colnames(Data[,-length(Data)]))){
+for (i in 2:length(colnames(Data[,-length(Data)]))){
   item = colnames(Data[,-length(Data)])[i]
-  if (i==1){
+  if (i==2){
     equation = paste0(equation,"Data$",item)
   }else{
     equation = paste0(equation," * Data$",item)

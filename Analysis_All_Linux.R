@@ -734,17 +734,17 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   Title = paste("Logistic Regression Function for", as.character(Model$formula[[2]]))
   Subtitle= paste("As Predicted by", Predictors)
   if (plt_type == "histogram"){
-    Drawing=ggplot(Data, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.02, color="black")+
+    Drawing=ggplot(Data, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.05, color="black")+
       scale_fill_manual(name="Group", values=c("#08457E", "#FBEC5D"))+TypicalTheme+geom_vline(xintercept = Threshold)+
       scale_x_continuous("Predicted Probability",limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+
       annotate(geom = "text", size=5, family="Amiri", x = (Threshold/2), y = y.value*2.1, label = paste("Predicted to be", BaseLevel))+
       annotate(geom = "text", size=5, family="Amiri", x = ((1+Threshold)/2), y = y.value*2.1, label = paste("Predicted to be", FirstLevel))+
-      annotate(geom = "text", size=5, family="Amiri", x = 0, y = y.value, label = GText_0, angle = 90)+
+      annotate(geom = "text", size=5, family="Amiri", x = -0.05, y = y.value, label = GText_0, angle = 90)+
       annotate(geom = "text", size=5, family="Amiri", x = 1, y = y.value, label = GText_1, angle = 90)+
       ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")
   } else if (plt_type == "glm"){
     if (length(strsplit(Predictors,"+",fixed = TRUE)[[1]])==1){
-      Data$Values = Data[[Predictors]]
+      Data$Values = Data$predicted.probability
       PredictedLevels = levels(Data[[PredictedVarName]])
       Data$PredictedFactor = as.character(Data[[PredictedVarName]])
       Data$PredictedFactor[Data$PredictedFactor==PredictedLevels[1]]=0

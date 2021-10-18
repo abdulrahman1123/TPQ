@@ -451,7 +451,7 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
       ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")
   } else if (plt_type == "glm"){
     if (length(strsplit(Predictors,"+",fixed = TRUE)[[1]])==1){
-      Data$Values = Data[[Predictors]]
+      Data$Values = Predictors
       PredictedLevels = levels(Data[[PredictedVarName]])
       Data$PredictedFactor = as.character(Data[[PredictedVarName]])
       Data$PredictedFactor[Data$PredictedFactor==PredictedLevels[1]]=0
