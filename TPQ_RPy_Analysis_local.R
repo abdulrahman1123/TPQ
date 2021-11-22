@@ -739,6 +739,263 @@ ggplot(data = projections_melted_cor, mapping = aes(x = Projections_group,y= Pro
   geom_text(aes(x= -0.1,y=-0.25,label = Cor_arranged))+
   facet_grid(IC~Diagnosis, scale = "free")
   
+
+# Logistic Regression for Diagnoses ------------------------------------------------------------
+
+# read projections data
+Projections = ICASSO_all$projections
+Projections = Projections[(Projections$Diagnosis == "MDD" | Projections$Diagnosis == "HC"),]
+Projections$Diagnosis = factor(Projections$Diagnosis, levels = c("HC","MDD"))
+
+
+corrplot::corrplot(cor(Projections[,paste0("IC",1:10)]))
+
+# Add "Sources_reconstructed
+Sources_reco = data.frame(All_reco)
+colnames(Sources_reco) = paste0("Q",1:100)
+Sources_reco$Diagnosis = ICASSO_all$projections$Diagnosis
+Sources_reco$ID = ICASSO_all$projections$ID
+Sources_reco = Sources_reco[as.character(Sources_reco$ID) %in% as.character(Projections$ID),]
+Sources_reco$Diagnosis = factor(Sources_reco$Diagnosis, levels=c("HC","MDD"))
+corrplot::corrplot(cor(Sources_reco[,paste0("Q",1:100)]))
+
+# read TPQ data
+ex_dir = '/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx'
+TPQ = as.data.frame(read_excel(ex_dir))
+
+# convert all Questions to numeric
+TPQ[,paste0("Q",1:100)] = apply(TPQ[,paste0("Q",1:100)],2, as.numeric)
+
+# recalculate main dimensions, because they are not calculated by default
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+for (item in names(TPQQuestions)){
+  # convert Question values (0s and 1s) to numeric
+  TPQ[,paste0("Q",TPQQuestions[[item]])] = apply(TPQ[,paste0("Q",TPQQuestions[[item]])],2,as.numeric)
+  
+  # convret Question answers (T and F) to numeric
+  TPQ[,paste0("QO",TPQQuestions[[item]])][TPQ[,paste0("QO",TPQQuestions[[item]])] == "T"]=1
+  TPQ[,paste0("QO",TPQQuestions[[item]])][TPQ[,paste0("QO",TPQQuestions[[item]])] == "F"]=0
+  TPQ[,paste0("QO",TPQQuestions[[item]])]= apply(TPQ[,paste0("QO",TPQQuestions[[item]])], 2, as.numeric)
+  
+  # calculate Cloninger's subscales as suggested by Cloninger (some answers are flipped)
+  TPQ[[item]]=apply(TPQ[,paste0("Q",TPQQuestions[[item]])], 1,sum, na.rm = TRUE)
+  
+  # calculate Cloninger's subscales by just summing True values (because the values given to Jurgen were not flipped,
+  # so, I will calculate a Data-driven equivalent for these subscales)
+  TPQ[[paste0("O_",item)]]=apply(TPQ[,paste0("QO",TPQQuestions[[item]])], 1,sum, na.rm = TRUE)
+}
+
+# Make sure that TPQ includes the same subjects as the "Projections" data set, and no NAs are included
+TPQ = TPQ[as.character(TPQ$`Final ID`) %in% as.character(Projections$ID),]
+TPQ$Diagnosis = factor(TPQ$Diagnosis, levels = c("HC","MDD"))
+
+# check correlation between all dimensions
+Main_dim = c("NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")
+subscales = c("NS1","NS2","NS3","NS4","HA1","HA2","HA3","HA4","RD1","RD2","RD3","RD4")
+subscales_or = paste0("O_",subscales)
+scales = c("NS","HA","RD")
+scales_or = paste0("O_",scales)
+included_questions =paste0("Q",1:100)
+included_questions = included_questions[included_questions!="Q61"&included_questions!="Q71"]
+
+
+# prepare a data frame with only questions and scales of original data, plus the data driven subscales
+Sources = ICASSO_all$sources
+melted_s = melt(Sources)
+melted_s$IC = factor(melted_s$IC, levels = paste0("IC",1:15))
+Sources_w = tidyr::spread(melted_s, IC, value)
+
+Sources_w[,2:16]= ifelse(abs(Sources_w[,2:16])>0.75,1,0)
+q_num = as.numeric(substr(Sources_w$variable,2,nchar(as.character(Sources_w$variable))))
+for(i in 1:12){
+  subscale = names(TPQQuestions)[i]
+  Sources_w$subscale[q_num %in% TPQQuestions[[i]]] = subscale
+}
+Sources_l = melt(Sources_w, id.vars = c("variable","subscale"), variable.name = "IC", value.name = "IC_loading")
+ggplot(Sources_l, aes(x=subscale,y=IC_loading))+
+  geom_bar(stat = "identity")+
+  facet_grid(IC~.)
+
+
+TPQ_source = TPQ[,c(paste0("QO",1:100),subscales_or)]
+
+for (item in paste0("IC",1:15)){
+  cor(Sources_w[[item]])
+}
+######
+
+corrplot::corrplot(cor(TPQ[,Main_dim]))
+corrplot::corrplot(cor(cbind(TPQ[,subscales], Projections[,paste0("IC",1:10)])))
+
+corrplot::corrplot(cor(cbind(TPQ[,subscales_or], Projections[,paste0("IC",1:10)])))
+
+Combined_data = cbind(TPQ[,subscales], Projections[,paste0("IC",1:10)])
+Combined_data_or = cbind(TPQ[,subscales_or], Projections[,paste0("IC",1:10)])
+
+corrplot::corrplot(cor(Combined_data))
+corrplot::corrplot(cor(Combined_data_or))
+
+cor_mat = matrix(rep(c(0),120), nrow = 10)
+p_mat = matrix(rep(c(0),120), nrow = 10)
+rownames(cor_mat) = paste0("IC",1:10)
+colnames(cor_mat)= subscales
+rownames(p_mat) = paste0("IC",1:10)
+colnames(p_mat)= subscales
+
+for (i in 1:10){
+  IC =paste0("IC",1:10)[i]
+  IC_p = sapply(subscales,function(item) cor.test(Combined_data[[item]],Combined_data[[IC]], method = "spearman")$p.value)
+  est =  sapply(subscales,function(item) cor.test(Combined_data[[item]],Combined_data[[IC]], method = "spearman")$estimate)
+  cor_mat[i,] = est
+  p_mat[i,] = IC_p
+}
+corrplot::corrplot(
+  cor_mat,
+  method = "number",
+  p.mat = p_mat,
+  sig.level = 0.005,
+  insig = "blank",
+  title = "\n\nCorrelations Between Cloninger's and Data-Driven Decomposition of TPQ\nSpearman Rho Values for Significant Results Only"
+)
+
+
+for (i in 1:10){
+  IC =paste0("IC",1:10)[i]
+  IC_p = sapply(subscales_or,function(item) cor.test(Combined_data_or[[item]],Combined_data_or[[IC]], method = "spearman")$p.value)
+  est =  sapply(subscales_or,function(item) cor.test(Combined_data_or[[item]],Combined_data_or[[IC]], method = "spearman")$estimate)
+  cor_mat[i,] = est
+  p_mat[i,] = IC_p
+}
+corrplot::corrplot(
+  cor_mat,
+  method = "number",
+  p.mat = p_mat,
+  sig.level = 0.0005,
+  insig = "blank",
+  title = "\n\nCorrelations Between Cloninger's and Data-Driven Decomposition of TPQ\nSpearman Rho Values for Significant Results Only"
+)
+
+# Now we do the subject groups
+
+
+# create a projections glm model
+Form = as.formula(paste0("Diagnosis ~ ",paste0("IC",1:10,collapse =  "+")))
+ModelProjections = glm(Form, data = Projections, family = binomial())
+#ModelProjections = step(ModelProjections,direction = "back")
+summary(ModelProjections)
+LogisticFunction(ModelData, plt_type = "histogram", Threshold = 0.5)
+ProjectionsPE = cv.glm(data = Projections ,ModelProjections ,K=10)$delta[2]
+print(paste("IC Model accuracy based on 10 fold cv = ", 100*(1-round(ProjectionsPE,3)),"%"))
+
+# create Sources-reconstructed glm model
+Form = as.formula(paste0("Diagnosis ~ ",paste0("Q",1:100,collapse =  "+")))
+ModelSources = glm(Form, data = Sources_reco, family = binomial())
+#ModelSources = step(ModelSources,direction = "back")
+#ModelSources = glm(Diagnosis~ Q1 + Q2 + Q3 + Q4 + Q5 + Q6 + Q7 + Q8 + Q11 + Q12 + Q13 + Q14, data = Sources_reco, family = binomial())
+summary(ModelSources)
+LogisticFunction(ModelSources, plt_type = "histogram", Threshold = 0.5)
+SourcesPE = cv.glm(data = Sources_reco ,ModelSources ,K=10)$delta[2]
+print(paste("IC Model accuracy based on 10 fold cv = ", 100*(1-round(SourcesPE,3)),"%"))
+
+
+# Create a TPQ glm model
+Form = as.formula(paste0("Diagnosis ~ ",paste0(subscales,collapse =  "+")))
+ModelTPQ = glm(Form, data = TPQ, family = binomial())
+#ModelTPQ = step(ModelTPQ,direction = "back")
+summary(ModelTPQ)
+LogisticFunction(ModelTPQ, plt_type = "histogram", Threshold = 0.5)
+PETPE = cv.glm(data = TPQ ,ModelTPQ ,K=10)$delta[2]
+print(paste("TPQ Model accuracy based on 10 fold cv = ", 100*(1-round(PETPE,3)),"%"))
+
+# Create a TPQ questions glm model
+TPQ_NA = na.exclude(TPQ[,c("Diagnosis",included_questions)])
+Form = as.formula(paste0("Diagnosis ~ ",paste0(included_questions,collapse =  "+")))
+ModelQuestions = glm(Form, data = TPQ_NA, family = binomial())
+ModelQuestions = step(ModelQuestions,direction = "back")
+#BackQuestions = c("Q2", "Q3", "Q5", "Q7", "Q8", "Q9", "Q13", "Q18", "Q19", "Q22", "Q26", "Q38", "Q39", "Q40", "Q41", "Q43", "Q45", "Q46", "Q49", "Q51", "Q54", "Q55", "Q56", "Q57", "Q60", "Q62", "Q64", "Q66", "Q69", "Q75", "Q77", "Q83", "Q85", "Q86", "Q88", "Q92", "Q93", "Q95")
+#Form = as.formula(paste0("Diagnosis ~ ",paste0(BackQuestions,collapse =  "+")))
+#ModelQuestions = glm(Form, data = TPQ_NA, family = binomial())
+summary(ModelQuestions)
+LogisticFunction(ModelQuestions, plt_type = "histogram", Threshold = 0.5)
+
+# I will use the caret package to confirm the results
+library(caret)
+require(mlbench)
+
+Form = as.formula(paste0("Diagnosis ~ ",paste0("IC",1:10,collapse =  "+")))
+fitControl_data = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_data = train(Form, data = Projections, method = "glm", family = "binomial", trControl = fitControl_data)
+summary(mod_fitcv_data)
+confusionMatrix(table((mod_fitcv_data$pred)$pred, (mod_fitcv_data$pred)$obs))
+
+#Now for Sources
+
+Form = Diagnosis~ Q1 + Q2 + Q3 + Q4 + Q5 + Q6 + Q7 + Q8 + Q11 + Q12 + Q13 + Q14
+fitControl_data = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_data = train(Form, data = Sources_reco, method = "glm", family = "binomial", trControl = fitControl_data)
+summary(mod_fitcv_data)
+confusionMatrix(table((mod_fitcv_data$pred)$pred, (mod_fitcv_data$pred)$obs))
+
+
+# Now for Cloninger's TPQ
+Form = as.formula(paste0("Diagnosis ~ ",paste0(subscales,collapse =  "+")))
+fitControl_TPQ = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_TPQ = train(Form, data = TPQ, method = "glm", family = "binomial", trControl = fitControl_TPQ)
+summary(mod_fitcv_TPQ)
+confusionMatrix(table((mod_fitcv_TPQ$pred)$pred, (mod_fitcv_TPQ$pred)$obs))
+
+
+
+# Now for Questions
+BackQuestions = c("Q2", "Q3", "Q5", "Q7", "Q8", "Q9", "Q13", "Q18", "Q19", "Q22", "Q26", "Q38", "Q39", "Q40", "Q41", "Q43", "Q45", "Q46", "Q49", "Q51", "Q54", "Q55", "Q56", "Q57", "Q60", "Q62", "Q64", "Q66", "Q69", "Q75", "Q77", "Q83", "Q85", "Q86", "Q88", "Q92", "Q93", "Q95")
+Form = as.formula(paste0("Diagnosis ~ ",paste0(BackQuestions,collapse =  "+")))
+fitControl_Questions = trainControl(method = "cv", number = 10, savePredictions = T)
+mod_fitcv_Questions = train(Form, data = TPQ_NA, method = "glm", family = "binomial", trControl = fitControl_Questions)
+summary(mod_fitcv_Questions)
+confusionMatrix(table((mod_fitcv_Questions$pred)$pred, (mod_fitcv_Questions$pred)$obs))
+
+# Apparently, the two "Accuracy" concepts are different. I will use this one as it seems better
+
+# Logistic Regression for Characters ------------------------------------------------------------
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+
+q_num = as.numeric(substr(sources_melted_all$Question,2,nchar(sources_melted_all$Question)))
+for(i in 1:12){
+  subscale = names(TPQQuestions)[i]
+  sources_melted_all$subscale[q_num %in% TPQQuestions[[i]]] = subscale
+}
+
+sources_melted_all$q_num = q_num
+
+
 # SVM -------------------------------------------------------------
 
 
