@@ -650,10 +650,20 @@ LogisticInfoFinder <- function(Model,iterations=10,Stepwise=TRUE,DeleterMean=100
   
 }
 
-LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
+LogisticFunction = function(Data, DV, IVs,control = "HC" , Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE){
+  
   #The Model is a logistic model (DV~IV1+IV2..., family = binomial())
-  Factor = as.character(Model$formula[[2]])
-  Data=Model$data[!is.na(Model$data[[Factor]]),]
+  Data = Data[colnames(Data) %in% DV| colnames(Data) %in% IVs]
+  Data = na.omit(Data)
+  
+  # create a training and a test data set
+  train_inds = sample(1:nrow(Data), size = perc*nrow(Data))
+  train = Data[train_inds,]
+  test = Data[-train_inds,]
+  
+  Formula = as.formula(paste0(DV," ~ ",paste0(IVs,collapse = "+")))
+  Model = glm(Formula, data = train, family = binomial())
+  Factor = as.character(Formula[[2]])
   Summary=summary(Model)
   n.value=Model$df.null+1
   Coefficients = Summary$coefficients
@@ -686,20 +696,21 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   Zvalues=round(Coefficients[, 3], digits = 3)
   Pvalues=round(Coefficients[, 4], digits = 3)
   
-  PredictedVar = Data[[as.character(Model$formula[[2]])]]
-  PredictedVarName = as.character(Model$formula[[2]])
-  Predictors=as.character(Model$formula[3])
+  PredictedVar = factor(test[[DV]])
+  PredictedVar = relevel(PredictedVar, ref = control)
+  
   
   BaseLevel=levels(PredictedVar)[1]
   FirstLevel=levels(PredictedVar)[2]
-
-  Data$predicted.probability <-fitted(Model)
-  Data$predicted.outcome <-ifelse(fitted(Model)<Threshold, BaseLevel, FirstLevel)
   
-  TruePositive=nrow(Data[(PredictedVar==FirstLevel&Data$predicted.outcome==FirstLevel), ])
-  FalsePositive=nrow(Data[(PredictedVar==BaseLevel&Data$predicted.outcome==FirstLevel), ])
-  TrueNegative=nrow(Data[(PredictedVar==BaseLevel&Data$predicted.outcome==BaseLevel), ])
-  FalseNegative=nrow(Data[(PredictedVar==FirstLevel&Data$predicted.outcome==BaseLevel), ])
+  
+  test$predicted.probability = predict(Model,newdata=test,type='response')
+  test$predicted.outcome <-ifelse(test$predicted.probability<Threshold, BaseLevel, FirstLevel)
+  
+  TruePositive=nrow(test[(PredictedVar==FirstLevel&test$predicted.outcome==FirstLevel), ])
+  FalsePositive=nrow(test[(PredictedVar==BaseLevel&test$predicted.outcome==FirstLevel), ])
+  TrueNegative=nrow(test[(PredictedVar==BaseLevel&test$predicted.outcome==BaseLevel), ])
+  FalseNegative=nrow(test[(PredictedVar==FirstLevel&test$predicted.outcome==BaseLevel), ])
   
   Sensitivity=round(TruePositive/(TruePositive+FalseNegative), digits = 3)
   Specificity=round(TrueNegative/(TrueNegative+FalsePositive), digits = 3)
@@ -720,7 +731,7 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   TList=NULL
   for (i in 0:20){
     interval=c((i-0.5)*0.05, (i+0.5)*0.05)
-    Num=sum((Data$predicted.probability>interval[1]&Data$predicted.probability<interval[2]))
+    Num=sum((predicted.probability>interval[1]&predicted.probability<interval[2]))
     TList=append(TList, Num)
   }
   y.value=max(TList)/2
@@ -736,10 +747,10 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   GText_0=paste("Specificity =", (100*Specificity), "%  || ", "NPV =", (100*NPV), "%")
   GText_1=paste("Sensitivity =", (100*Sensitivity), "%  || ", "PPV =", (100*PPV), "%")
   
-  Title = paste("Logistic Regression Function for", as.character(Model$formula[[2]]))
-  Subtitle= paste("As Predicted by", Predictors)
+  Title = paste("Logistic Regression Function for", as.character(Formula[[2]]))
+  Subtitle= paste("As Predicted by", paste0(IVs,collapse = "+"))
   if (plt_type == "histogram"){
-    Drawing=ggplot(Data, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.05, color="black")+
+    Drawing=ggplot(test, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.05, color="black")+
       scale_fill_manual(name="Group", values=c("#08457E", "#FBEC5D"))+TypicalTheme+geom_vline(xintercept = Threshold)+
       scale_x_continuous("Predicted Probability",limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+
       annotate(geom = "text", size=5, family="Amiri", x = (Threshold/2), y = y.value*2.1, label = paste("Predicted to be", BaseLevel))+
@@ -748,18 +759,18 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
       annotate(geom = "text", size=5, family="Amiri", x = 1, y = y.value, label = GText_1, angle = 90)+
       ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")
   } else if (plt_type == "glm"){
-    if (length(strsplit(Predictors,"+",fixed = TRUE)[[1]])==1){
-      Data$Values = Data$predicted.probability
-      PredictedLevels = levels(Data[[PredictedVarName]])
-      Data$PredictedFactor = as.character(Data[[PredictedVarName]])
-      Data$PredictedFactor[Data$PredictedFactor==PredictedLevels[1]]=0
-      Data$PredictedFactor[Data$PredictedFactor==PredictedLevels[2]]=1
-      Data$PredictedFactor = as.numeric(Data$PredictedFactor)
-      Drawing =ggplot(data = Data,mapping= aes(x = Values, y=PredictedFactor))+
+    if (length(IVs)==1){
+      test$Values = test$predicted.probability
+      PredictedLevels = levels(test[[DV]])
+      test$PredictedFactor = as.character(test[[DV]])
+      test$PredictedFactor[test$PredictedFactor==PredictedLevels[1]]=0
+      test$PredictedFactor[test$PredictedFactor==PredictedLevels[2]]=1
+      test$PredictedFactor = as.numeric(test$PredictedFactor)
+      Drawing =ggplot(data = test,mapping= aes(x = Values, y=PredictedFactor))+
         geom_jitter(shape = 21, color = "#7c0a02", fill="white",size = 4,width = 0.1, height = 0)+
         stat_smooth(method = "glm", method.args = list(family = "binomial"),se=F,color="#7c0a02",size=4)+
-        scale_y_continuous(name = PredictedVarName,breaks=c(0,1), labels= c(levels(Data[[PredictedVarName]])[1],levels(Data[[PredictedVarName]])[2]))+
-        scale_x_continuous(name = Predictors)+
+        scale_y_continuous(name = DV,breaks=c(0,1), labels= c(levels(test[[DV]])[1],levels(test[[DV]])[2]))+
+        scale_x_continuous(name = paste0(IVs,collapse = "+"))+
         ggtitle(Title,subtitle = Subtitle)+
         TypicalTheme
     }else{
@@ -773,13 +784,13 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   #annotate(geom = "text", size=5, family="Amiri", x = 1.1, y = 10, label = GText_1, angle = 90)
   
   #Create a dataframe that contains only the needed data
-  data_frame_essential = data.frame(predicted.probability= Data$predicted.probability,
-                                    predicted.outcome = Data$predicted.outcome,
-                                    actual.outcome = Data[[PredictedVarName]])
+  data_frame_essential = data.frame(predicted.probability= test$predicted.probability,
+                                    predicted.outcome = test$predicted.outcome,
+                                    actual.outcome = test[[DV]])
   
   for (i in 2:length(as.character(Model$formula[[3]]))){
     local_factor= as.character(Model$formula[[3]])[i]
-    data_frame_essential[[local_factor]]=Data[[local_factor]]
+    data_frame_essential[[local_factor]]=test[[local_factor]]
   }
   
   #Create prediction matrix
@@ -790,18 +801,28 @@ LogisticFunction = function(Model, Threshold = 0.5, plt_type = "histogram"){
   }
   colnames(PredMatrix)=c("0(Actual)","1(Actual)")
   
+  roc.info = "No ROC"
+  if (nlevels(test[[DV]]) == 2){
+    cases_probs = test$predicted.probability
+    test_values = factor(test[[DV]])
+    test_values = relevel(test_values, control)
+    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
+                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+  }
   LogValues=data.frame(Beta, SE, Lower.CI, odds_ratio, Upper.CI, Zvalues, Pvalues)
   DerivedValues=data.frame(chisq=modelChi, df=chidf, p.value.chi=chisq.prob, r2.hl=R2.hl, r2.cs=R2.cs, r2.n=R2.n, sensitivity=Sensitivity, specificity=Specificity)
   DataList=list(data_frame = data_frame_essential,
                 log.values=LogValues, derived.values=DerivedValues,
                 prob.formula = paste("Probability of Y occuring = ","1/(1 + e ^ -(",Xs,")",sep = ""),
-                PredMatrix = PredMatrix)
+                PredMatrix = PredMatrix,
+                ROC = roc.info)
   
   print (Drawing)
   
   return (DataList)
   
 }
+
 
 
 
