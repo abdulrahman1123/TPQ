@@ -271,6 +271,411 @@ prep_proj <- function(df_projection){
   return(all_na)
 }
 
+
+test_roc = function(roc1, roc2, name1 = "ROC1", name2 = "ROC2", control = "HC",Subtitle = ""){
+  d.len1 = length(roc1$sensitivities)
+  d.len1 = length(roc2$sensitivities)
+  perc1 = c(rep("",(d.len1-1)),paste0("AUC = ",round(as.numeric(roc1$auc),2),"%"))
+  perc2 = c(rep("",(d.len1-1)),paste0("AUC = ",round(as.numeric(roc2$auc),2),"%"))
+  
+  case = levels(roc1$original.response)[levels(roc1$original.response)!=control]
+  
+  roc1_df = data.frame(D=factor(roc1$original.response, ordered = TRUE, levels = c(control, case)), M1 = roc1$original.predictor)
+  roc2_df = data.frame(D=factor(roc2$original.response, ordered = TRUE, levels = c(control, case)), M1 = roc2$original.predictor)
+  
+  color1 = "#808CA3"
+  color2 = "#B9B0AB"
+  
+  roc_test = roc.test(svm_cloninger_lin$ROC,svm_info_lin$ROC)
+  roc_p = round(roc_test$p.value,4)
+  roc_stat = round(roc_test$statistic,3)
+  roc_est = round(roc_test$parameter,3)
+  roc_test_text = paste0("DeLong's test for two ROC curves\nD(",roc_est,") = ", roc_stat,", p value = ",roc_p)
+  g_roc = ggplot()+
+    geom_roc(data = roc1_df, mapping = aes(d = D, m = M1), color = color1, n.cuts = 0)+style_roc()+
+    geom_roc(data = roc2_df, mapping = aes(d = D, m = M1), color = color2, n.cuts = 0)+
+    theme_bw(base_size = 18,base_family = "Amiri")+
+    theme(plot.title = element_text(hjust = 0.5),plot.subtitle = element_text(hjust = 0.5,face = "italic"))
+    #TypicalTheme+
+    
+    geom_text(aes(x= 0.9,y=0.45,label = perc1), color = color1)+
+    geom_text(aes(x= 0.9,y=0.4,label = perc2), color = color2)+
+    geom_text(aes(x= 0.6,y=0.45,label = c(rep("",(d.len1-1)),name1)), color = color1)+
+    geom_text(aes(x= 0.6,y=0.4,label = c(rep("",(d.len2-1)),name2)), color = color2)+
+    geom_text(aes(x= 0.75,y=0.25,label = roc_test_text), color = "black")+
+    #scale_x_continuous(name = "100 - Specificity (%)", labels = c(0,25,50,75,100))+
+    #scale_y_continuous(name = "Sensitivity (%)", breaks = c(0.0,0.25,0.5,0.75,1.0), labels = c(0,25,50,75,100))+
+    ggtitle(paste0("ROC Curves for ",name1," VS ",name2), subtitle = Subtitle)
+  
+  
+  
+  return(list(roc_plot = g_roc, roc_test = roc_test))
+}
+
+LogisticFunction = function(Data, DV, IVs,control = "HC" , Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE, k.fold = 10){
+  #The Model is a logistic model (DV~IV1+IV2..., family = binomial())
+  Data = Data[colnames(Data) %in% DV| colnames(Data) %in% IVs]
+  Data = na.omit(Data)
+  
+  # create a training and a test data set
+  train_inds = sample(1:nrow(Data), size = perc*nrow(Data))
+  train = Data[train_inds,]
+  test = Data[-train_inds,]
+  
+  
+  Formula = as.formula(paste0(DV," ~ ",paste0(IVs,collapse = "+")))
+  Model = glm(Formula, data = train, family = binomial())
+  
+  # calculate accuracy and prediction error
+  folds = createFolds(train[[DV]], k = k.fold)
+  accuracy = ""
+  pred_error = ""
+  cv = lapply(folds, function(fold) {
+    train_fold = train[-fold,]
+    test_fold = train[fold,]
+    
+    model_fold = glm(Formula, data = train_fold, family = binomial())
+    preds_fold = predict(model_fold, test_fold,type='response')
+    outcome = ifelse(test_fold[[DV]] == control,0,1)
+    accuracy_fold = mean(outcome == ifelse(preds_fold>0.5,1,0))
+    pred_error = mean((outcome- preds_fold)^2)
+    
+    # average ROC 
+    roc.info_fold = "No ROC"
+    if (nlevels(test_fold[[DV]]) == 2){
+      test_values = factor(test_fold[[DV]])
+      test_values = relevel(test_values, control)
+      test_values_num = ifelse(test_values==control, 0,1)
+      roc.info_fold = roc(test_values, preds_fold, plot = TRUE, levels = levels(test_values),
+                          percent = TRUE,legacy.axes = TRUE, print.auc = TRUE, auc = TRUE)
+      roc_list = append(roc_list, list(roc.info_fold))
+    }
+    return(list(length(test_values),accuracy_fold,roc.info_fold$auc,pred_error,roc.info_fold))
+  })
+  cv_values = as.data.frame(t(sapply(cv, function(x) as.numeric(x[1:4]))))
+  roc_list = sapply(cv, function(x) x[5])
+  accuracy = paste0(100*round(mean(cv_values[,2]),digits = 6),"%")
+  pred_error = paste0(100*round(mean(cv_values[,4]),digits = 3),"%")
+  AUC = paste0(round(mean(cv_values[,3]),digits = 3),"%")
+  
+  Factor = as.character(Formula[[2]])
+  Summary=summary(Model)
+  n.value=Model$df.null+1
+  Coefficients = Summary$coefficients
+  
+  #The improvement we got (change in deviance) after including predictors (baseline deviance - model deviance)
+  modelChi = Model$null.deviance-Model$deviance 
+  
+  #degress of freedom, which are the df for the constant-only model minus the df in the predictors-model
+  chidf = Model$df.null - Model$df.residual
+  
+  #since it has a chisquare distribution, we can calculate significance
+  chisq.prob=1-pchisq(modelChi, chidf)
+  
+  #r.value=sqrt((z.value^2 - 2*chidf)/Model$null.deviance)
+  
+  R2.hl = modelChi/Model$null.deviance
+  R2.cs = 1- exp(-modelChi/n.value)
+  R2.n = R2.cs/(1-exp(-(Model$null.deviance/n.value)))
+  
+  #Odds ratio, upper and lower CI
+  odds_ratio=round(exp(Model$coefficients), digits = 3)
+  Lower.CI=round(exp(confint(Model))[, 1], digits = 3)
+  Upper.CI=round(exp(confint(Model))[, 2], digits = 3)
+  
+  #Beta and SE
+  Beta=round(Coefficients[, 1], digits = 3)
+  SE=round(Coefficients[, 2], digits = 3)
+  
+  #zvalues and p-values
+  Zvalues=round(Coefficients[, 3], digits = 3)
+  Pvalues=round(Coefficients[, 4], digits = 3)
+  
+  PredictedVar = factor(test[[DV]])
+  PredictedVar = relevel(PredictedVar, ref = control)
+  
+  
+  BaseLevel=levels(PredictedVar)[1]
+  FirstLevel=levels(PredictedVar)[2]
+  
+  
+  test$predicted.probability = predict(Model,newdata=test,type='response')
+  test$predicted.outcome <-ifelse(test$predicted.probability<Threshold, BaseLevel, FirstLevel)
+  
+  TruePositive=nrow(test[(PredictedVar==FirstLevel&test$predicted.outcome==FirstLevel), ])
+  FalsePositive=nrow(test[(PredictedVar==BaseLevel&test$predicted.outcome==FirstLevel), ])
+  TrueNegative=nrow(test[(PredictedVar==BaseLevel&test$predicted.outcome==BaseLevel), ])
+  FalseNegative=nrow(test[(PredictedVar==FirstLevel&test$predicted.outcome==BaseLevel), ])
+  
+  Sensitivity=round(TruePositive/(TruePositive+FalseNegative), digits = 3)
+  Specificity=round(TrueNegative/(TrueNegative+FalsePositive), digits = 3)
+  PPV=round(TruePositive/(TruePositive+FalsePositive), digits=3)
+  NPV=round(TrueNegative/(TrueNegative+FalseNegative), digits=3)
+  
+  
+  Xs=round(Coefficients[1,1],digits = 4)
+  for (i in 2:length(Coefficients[,1])){
+    VAr_name = names(Coefficients[,1])[i]
+    L_coefficient = paste0("+",round(Coefficients[i,1],digits = 4))
+    factor_value = L_coefficient
+    factor_value = gsub("\\+-"," - ",L_coefficient)
+    factor_value = gsub("\\+"," \\+ ",factor_value)
+    Xs = paste0(Xs,factor_value,"*",VAr_name)
+  }
+  #The y.value finder, which is the maximum count on the plot divided by 2, this is for plotting reasons
+  TList=NULL
+  for (i in 0:20){
+    interval=c((i-0.5)*0.05, (i+0.5)*0.05)
+    Num=sum((test$predicted.probability>interval[1]&test$predicted.probability<interval[2]))
+    TList=append(TList, Num)
+  }
+  y.value=max(TList)/2
+  
+  GText_0=paste("Specificity =", (100*Specificity), "%  || ", "NPV =", (100*NPV), "%  || ","Accuracy =", accuracy)
+  GText_1=paste("Sensitivity =", (100*Sensitivity), "%  || ", "PPV =", (100*PPV), "%  || ","Pred.Error =", pred_error)
+  
+  Title = paste("Logistic Regression Function for", as.character(Formula[[2]]))
+  Subtitle= paste("As Predicted by", paste0(IVs,collapse = "+"))
+  if (plt_type == "histogram"){
+    Drawing=ggplot(test, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.05, color="black")+
+      scale_fill_manual(name="Group", values=c("#08457E", "#FBEC5D"))+TypicalTheme+geom_vline(xintercept = Threshold)+
+      scale_x_continuous("Predicted Probability",limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+
+      annotate(geom = "text", size=5, family="Amiri", x = (Threshold/2), y = y.value*2.1, label = paste("Predicted to be", BaseLevel))+
+      annotate(geom = "text", size=5, family="Amiri", x = ((1+Threshold)/2), y = y.value*2.1, label = paste("Predicted to be", FirstLevel))+
+      annotate(geom = "text", size=5, family="Amiri", x = -0.05, y = y.value, label = GText_0, angle = 90)+
+      annotate(geom = "text", size=5, family="Amiri", x = 1, y = y.value, label = GText_1, angle = 90)+
+      ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")
+  } else if (plt_type == "glm"){
+    if (length(IVs)==1){
+      test$Values = test$predicted.probability
+      PredictedLevels = levels(test[[DV]])
+      test$PredictedFactor = as.character(test[[DV]])
+      test$PredictedFactor[test$PredictedFactor==PredictedLevels[1]]=0
+      test$PredictedFactor[test$PredictedFactor==PredictedLevels[2]]=1
+      test$PredictedFactor = as.numeric(test$PredictedFactor)
+      Drawing =ggplot(data = test,mapping= aes(x = Values, y=PredictedFactor))+
+        geom_jitter(shape = 21, color = "#7c0a02", fill="white",size = 4,width = 0.1, height = 0)+
+        stat_smooth(method = "glm", method.args = list(family = "binomial"),se=F,color="#7c0a02",size=4)+
+        scale_y_continuous(name = DV,breaks=c(0,1), labels= c(levels(test[[DV]])[1],levels(test[[DV]])[2]))+
+        scale_x_continuous(name = paste0(IVs,collapse = "+"))+
+        ggtitle(Title,subtitle = Subtitle)+
+        TypicalTheme
+    }else{
+      Drawing = ("Can't draw glm smoothed figure when there is more than one predictor")
+    }
+  }
+  
+  #Create a dataframe that contains only the needed data
+  data_frame_essential = data.frame(predicted.probability= test$predicted.probability,
+                                    predicted.outcome = test$predicted.outcome,
+                                    actual.outcome = test[[DV]])
+  
+  for (i in 2:length(as.character(Model$formula[[3]]))){
+    local_factor= as.character(Model$formula[[3]])[i]
+    data_frame_essential[[local_factor]]=test[[local_factor]]
+  }
+  
+  #Create prediction matrix
+  PredMatrix=table(data_frame_essential$predicted.outcome,data_frame_essential$actual.outcome)
+  #in case all cases are predicted to be 0 or 1, this will make PredMatrixa 1-row matrix. So, I will go through items one by one
+  for (i in 1:length(rownames(PredMatrix))){
+    rownames(PredMatrix)[i]=gsub(rownames(PredMatrix)[i],paste0(rownames(PredMatrix)[i],"(Predicted)"),rownames(PredMatrix)[i])
+  }
+  colnames(PredMatrix)=c("0(Actual)","1(Actual)")
+  
+  roc.info = "No ROC"
+  if (nlevels(test[[DV]]) == 2){
+    cases_probs = test$predicted.probability
+    test_values = factor(test[[DV]])
+    test_values = relevel(test_values, control)
+    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
+                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE, auc = TRUE)
+  }
+  LogValues=data.frame(Beta, SE, Lower.CI, odds_ratio, Upper.CI, Zvalues, Pvalues)
+  DerivedValues=data.frame(chisq=modelChi, df=chidf, p.value.chi=chisq.prob, r2.hl=R2.hl,
+                           r2.cs=R2.cs, r2.n=R2.n, sensitivity=Sensitivity, specificity=Specificity,
+                           cv_accuracy = accuracy, cv_MSE = pred_error, cv_AUC = AUC)
+  DataList=list(data_frame = data_frame_essential,
+                log.values=LogValues, derived.values=DerivedValues,
+                prob.formula = paste("Probability of Y occuring = ","1/(1 + e ^ -(",Xs,")",sep = ""),
+                PredMatrix = PredMatrix,
+                ROC = roc.info,
+                roc_cv_list = roc_list,
+                Model = Model)
+  
+  print (Drawing)
+  
+  return (DataList)
+  
+}
+
+show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "linear", perc = 0.8,
+                    plot.ROC=TRUE, k.fold = 0, weighted = TRUE){
+  
+  # Function to calculate SVM. It will plot the SVM function if there were only two IVs
+  # It will also plot an ROC curve, if specified, and if there are exactly two levels of the DV
+  # Also, when k.fold > 1, there will be no plotting of any type
+  # data_frame: the dataframe to be included,
+  # DV: dependent variable
+  # IVs: independent variables to predict the model from
+  # control: the level name of controls in the DV, usually set to "HC"
+  # res: resolution of the plotted polygons
+  # k_type= kernel type, can be linear, polynomial, radial or sigmoid
+  # perc: percentage of training data set
+  # plot.ROC: boolean to plot ROC curve if needed
+  # k.fold: number of folds to test the data on
+  
+  data_frame = data_frame[colnames(data_frame) %in% DV| colnames(data_frame) %in% IVs]
+  data_frame = na.omit(data_frame)
+  data_frame[,IVs] = scale(data_frame[,IVs])
+  make_grid = function(x1,x2,n = 75){  
+    ## This function only creates a range of dots
+    # These dots will be colored according to the predicted value based on our data
+    x1 = seq(from = min(x1)-0.5, to = max(x1)+0.5, length = n)
+    x2 = seq(from = min(x2)-0.5, to = max(x2)+0.5, length = n)
+    
+    new_df = expand.grid(X1 = x1, X2 = x2)
+    colnames(new_df) = colnames(data_frame)[1:2]
+    
+    return(new_df)
+  }
+  
+  convert_to_sf = function(new_df){
+    # The next part converts the grid data frame to a group of polygons of class sf
+    pre_raster_df = new_df
+    pre_raster_df = cbind(pre_raster_df, cat = rep(1L, nrow(pre_raster_df)),stringsAsFactors = FALSE)
+    
+    # formula coordinates will be based on the colnames of the data input (e.g. ~X1+X2)
+    cor_form = as.formula(paste0("~",colnames(new_df)[1],"+", colnames(new_df)[2]))
+    coordinates(pre_raster_df) = cor_form
+    gridded(pre_raster_df) <- TRUE
+    
+    # create raster df
+    raster_df <- raster(pre_raster_df)
+    
+    # create spatial polygons
+    sp_df = rasterToPolygons(raster_df, dissolve = TRUE)
+    
+    # convert polygons of class sf
+    sf_polygons = st_as_sf(sp_df)
+    
+    return(sf_polygons)
+  }
+  
+  # create a test and train data sets
+  
+  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
+  train = data_frame[train_inds,]
+  test = data_frame[-train_inds,]
+  
+  if (weighted){
+    classes = levels(train[[DV]])
+    c.weights = sapply(classes, function(x) length(train[[DV]])/sum(train[[DV]] == x))
+  }
+  Formula = as.formula(paste0(DV," ~ ",paste0(IVs,collapse = "+")))
+  svm_model = svm(Formula, data = train, kernel = k_type, cost = 1, scale = TRUE, probability = TRUE, cross = k.fold, class.weights = c.weights)
+  
+  if (length(IVs) == 2){
+    grid = make_grid(train[[IVs[1]]],train[[IVs[2]]], n = res)
+    preds = predict(svm_model, grid)
+    predicted_df = data.frame(X1 = grid[,1], X2 = grid[,2], Y=preds)
+    sf_polygons = convert_to_sf(predicted_df)
+    
+    Colors = c("#C33E3B","#4EA3DF","#6cBE58","#808CA3","#B9B0AB","#2F4F4F", "#CC6666", "#9999CC", "#66CC99","#682860","#FBEC5D","#FF6347","#FF3800","#1B4D3E","#E30B5D")
+    # plot the model
+    g_svm = ggplot()+
+      geom_sf(data = sf_polygons, alpha = 0.25, mapping= aes(x=NULL,y=NULL,group = Y,fill = Y))+
+      scale_fill_gradientn(breaks = 1:length(IVs),colors = Colors[1:length(IVs)])+
+      geom_point(data = train,mapping = aes(x = .data[[IVs[1]]], y =.data[[IVs[2]]],color = .data[[DV]]),size = 3)+
+      scale_color_manual(values = Colors)+
+      ggtitle("Data points of the variables X0 and X1", subtitle = "Original Data with Predicted Values")+
+      MinimalTheme
+    
+    print(g_svm)
+  }
+  
+  
+  preds = predict(svm_model, test, probability = TRUE)
+  roc.info = "No ROC"
+  if (nlevels(test[[DV]]) == 2){
+    cases_probs = 1-as.data.frame(attr(preds, "probabilities"))[[control]]
+    test_values = factor(test[[DV]])
+    test_values = relevel(test_values, control)
+    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
+                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE, auc = TRUE)
+  }
+  Accuracy = round(mean(preds== test[[DV]]),digits = 4)
+  res_table = table(predicted = preds, actual = test[[DV]])
+  if (k.fold>1){
+    folds = createFolds(train[[DV]], k = k.fold)
+    
+    # in cv we are going to applying a created function to our 'folds'
+    roc_list = list()
+    cv = lapply(folds, function(x) { # start of function
+      training_fold = train[-x, ]
+      test_fold = train[x, ] # here we describe the test fold individually
+      # now apply (train) the classifer on the training_fold
+      svm_fold = svm(formula = Formula,
+                     data = training_fold,
+                     type = 'C-classification',
+                     kernel = k_type,
+                     probability = TRUE, cost = 1, scale = TRUE,class.weights = c.weights)
+      
+      preds_fold = predict(svm_fold, test_fold, probability = TRUE)
+      roc.info_fold = "No ROC"
+      if (nlevels(test[[DV]]) == 2){
+        cases_probs = 1-as.data.frame(attr(preds_fold, "probabilities"))[[control]]
+        test_values = factor(test_fold[[DV]])
+        test_values = relevel(test_values, control)
+        test_values_num = ifelse(test_values==control, 0,1)
+        roc.info_fold = roc(test_values, cases_probs, plot = TRUE, levels = levels(test_values),
+                            percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+        roc_list = append(roc_list, list(roc.info_fold))
+      }
+      Accuracy_fold = round(mean(preds_fold== test_fold[[DV]]),digits = 4)
+      pred_error_fold = round(mean((test_values_num-cases_probs)^2),digits = 4)
+      
+      return(c(Accuracy_fold,roc.info_fold$auc,pred_error_fold))
+    })
+    cv = t(data.frame(cv))
+    colnames(cv) = c("Accuracy","AUC", "Pred.Error")
+  }else{
+    cv = "Data were not cross validated"
+  }
+  return(list(svm = svm_model,accuracy = svm_model$tot.accuracy, c_matrix = res_table, ROC = roc.info, roc_cv = roc_list, cv = cv))
+}
+
+show_knn = function(df, DV, IVs, perc, control = "HC", plot.ROC = TRUE){
+  nor <-function(x) {(x -min(x))/(max(x)-min(x))}
+  
+  df = na.omit(df[,c(IVs,DV)])
+  data_norm <- as.data.frame(lapply(df[,IVs], nor))
+  
+  train_inds = sample(1:nrow(df), size = perc*nrow(df))
+  df_train = data_norm[train_inds,] 
+  df_test = data_norm[-train_inds,] 
+  
+  train_category = df[train_inds,colnames(df) == DV]
+  
+  test_category <- df[-train_inds,colnames(df) == DV]
+  
+  predicted = knn(df_train,df_test,cl=train_category,k=13, prob = TRUE)
+  
+  roc.info = "No ROC"
+  if (nlevels(test[[DV]]) == 2){
+    cases_probs = attr(predicted, "prob")
+    test_values = factor(test[[DV]])
+    test_values = relevel(test_values, control)
+    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
+                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+  }
+  tab = table(predicted,test_category)
+  Accuracy = mean(predicted == test_category)
+  
+  return(list(tab, Accuracy, roc.info))
+}
+
+
 # Correlations Between Sources of Different Data Decompositions ---------------
 
 library(reshape2)
@@ -1523,237 +1928,6 @@ corrplot::corrplot(
 )
 
 # Now we do the subject groups
-# Logistic regression function
-Data = Projections
-DV = "Diagnosis"
-IVs =paste0("IC",1:10)
-control = "HC"
-Threshold = 0.5
-plt_type = "histogram"
-perc= 0.8
-plot.ROC = TRUE
-LogisticFunction = function(Data, DV, IVs,control = "HC" , Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE){
-  #The Model is a logistic model (DV~IV1+IV2..., family = binomial())
-  Data = Data[colnames(Data) %in% DV| colnames(Data) %in% IVs]
-  Data = na.omit(Data)
-  
-  # create a training and a test data set
-  train_inds = sample(1:nrow(Data), size = perc*nrow(Data))
-  train = Data[train_inds,]
-  test = Data[-train_inds,]
-  
-  
-  Formula = as.formula(paste0(DV," ~ ",paste0(IVs,collapse = "+")))
-  Model = glm(Formula, data = train, family = binomial())
-  
-  # delete later
-  folds = createFolds(train[[DV]], k = k.fold)
-  accuracies = lapply(folds, function(fold) {
-    train_fold = train[-fold,]
-    test_fold = train[fold,]
-    
-    model_fold = glm(Formula, data = train_fold, family = binomial())
-    pred = predict(model_fold,newdata=test_fold,type='response')
-    pred_outcome = ifelse(pred>0.5,"MDD","HC")
-    accuracy_fold = mean(test_fold[[DV]] == pred_outcome)
-    return(accuracy_fold)
-  })
-  mean(simplify2array(accuracies))
-  
-  function (data, glmfit, cost = function(y, yhat) mean((y - yhat)^2), 
-            K = n) 
-  {
-    K=10
-    call <- match.call()
-    if (!exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) 
-      runif(1)
-    seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-    n <- nrow(train)
-    if ((K > n) || (K <= 1)) 
-      stop("'K' outside allowable range")
-    K.o <- K
-    K <- round(K)
-    kvals <- unique(round(n/(1L:floor(n/2))))
-    temp <- abs(kvals - K)
-    if (!any(temp == 0)) 
-      K <- kvals[temp == min(temp)][1L]
-    if (K != K.o) 
-      warning(gettextf("'K' has been set to %f", K), domain = NA)
-    f <- ceiling(n/K)
-    s <- sample(rep(1L:K, f), n)
-    n.s <- table(s)
-    glm.y <- Model$y
-    cost.0 <- cost(glm.y, fitted(Model))
-    ms <- max(s)
-    CV <- 0
-    Call <- glmfit$call
-    for (i in seq_len(ms)) {
-      j.out <- seq_len(n)[(s == i)]
-      j.in <- seq_len(n)[(s != i)]
-      Call$data <- data[j.in, , drop = FALSE]
-      d.glm <- eval.parent(Call)
-      p.alpha <- n.s[i]/n
-      cost.i <- cost(glm.y[j.out], predict(d.glm, data[j.out, 
-                                                       , drop = FALSE], type = "response"))
-      CV <- CV + p.alpha * cost.i
-      cost.0 <- cost.0 - p.alpha * cost(glm.y, predict(d.glm, 
-                                                       data, type = "response"))
-    }
-    list(call = call, K = K, delta = as.numeric(c(CV, CV + cost.0)), 
-         seed = seed)
-  }
-  cv.glm(data = train ,Model ,K=10)$delta[2]
-  # end delete
-  
-  Factor = as.character(Formula[[2]])
-  Summary=summary(Model)
-  n.value=Model$df.null+1
-  Coefficients = Summary$coefficients
-  
-  #The improvement we got (change in deviance) after including predictors (baseline deviance - )
-  modelChi = Model$null.deviance-Model$deviance 
-  
-  #degress of freedom, which are the df for the constant-only model minus the df in the predictors-model
-  chidf = Model$df.null - Model$df.residual
-  
-  #since it has a chisquare distribution, we can calculate significance
-  chisq.prob=1-pchisq(modelChi, chidf)
-  
-  #r.value=sqrt((z.value^2 - 2*chidf)/Model$null.deviance)
-  
-  R2.hl = modelChi/Model$null.deviance
-  R2.cs = 1- exp(-modelChi/n.value)
-  R2.n = R2.cs/(1-exp(-(Model$null.deviance/n.value)))
-  
-  #Odds ratio, upper and lower CI
-  odds_ratio=round(exp(Model$coefficients), digits = 3)
-  Lower.CI=round(exp(confint(Model))[, 1], digits = 3)
-  Upper.CI=round(exp(confint(Model))[, 2], digits = 3)
-  
-  #Beta and SE
-  Beta=round(Coefficients[, 1], digits = 3)
-  SE=round(Coefficients[, 2], digits = 3)
-  
-  #zvalues and p-values
-  Zvalues=round(Coefficients[, 3], digits = 3)
-  Pvalues=round(Coefficients[, 4], digits = 3)
-  
-  PredictedVar = factor(test[[DV]])
-  PredictedVar = relevel(PredictedVar, ref = control)
-  
-  
-  BaseLevel=levels(PredictedVar)[1]
-  FirstLevel=levels(PredictedVar)[2]
-  
-  
-  test$predicted.probability = predict(Model,newdata=test,type='response')
-  test$predicted.outcome <-ifelse(test$predicted.probability<Threshold, BaseLevel, FirstLevel)
-  
-  TruePositive=nrow(test[(PredictedVar==FirstLevel&test$predicted.outcome==FirstLevel), ])
-  FalsePositive=nrow(test[(PredictedVar==BaseLevel&test$predicted.outcome==FirstLevel), ])
-  TrueNegative=nrow(test[(PredictedVar==BaseLevel&test$predicted.outcome==BaseLevel), ])
-  FalseNegative=nrow(test[(PredictedVar==FirstLevel&test$predicted.outcome==BaseLevel), ])
-  
-  Sensitivity=round(TruePositive/(TruePositive+FalseNegative), digits = 3)
-  Specificity=round(TrueNegative/(TrueNegative+FalsePositive), digits = 3)
-  PPV=round(TruePositive/(TruePositive+FalsePositive), digits=3)
-  NPV=round(TrueNegative/(TrueNegative+FalseNegative), digits=3)
-  
-  
-  Xs=round(Coefficients[1,1],digits = 4)
-  for (i in 2:length(Coefficients[,1])){
-    VAr_name = names(Coefficients[,1])[i]
-    L_coefficient = paste0("+",round(Coefficients[i,1],digits = 4))
-    factor_value = L_coefficient
-    factor_value = gsub("\\+-"," - ",L_coefficient)
-    factor_value = gsub("\\+"," \\+ ",factor_value)
-    Xs = paste0(Xs,factor_value,"*",VAr_name)
-  }
-  #The y.value finder, which is the maximum count on the plot divided by 2, this is for plotting reasons
-  TList=NULL
-  for (i in 0:20){
-    interval=c((i-0.5)*0.05, (i+0.5)*0.05)
-    Num=sum((test$predicted.probability>interval[1]&test$predicted.probability<interval[2]))
-    TList=append(TList, Num)
-  }
-  y.value=max(TList)/2
-  
-  GText_0=paste("Specificity =", (100*Specificity), "%  || ", "NPV =", (100*NPV), "%")
-  GText_1=paste("Sensitivity =", (100*Sensitivity), "%  || ", "PPV =", (100*PPV), "%")
-  
-  Title = paste("Logistic Regression Function for", as.character(Formula[[2]]))
-  Subtitle= paste("As Predicted by", paste0(IVs,collapse = "+"))
-  if (plt_type == "histogram"){
-    Drawing=ggplot(test, aes(x=predicted.probability, fill=PredictedVar))+geom_histogram(binwidth=0.05, color="black")+
-      scale_fill_manual(name="Group", values=c("#08457E", "#FBEC5D"))+TypicalTheme+geom_vline(xintercept = Threshold)+
-      scale_x_continuous("Predicted Probability",limits = c(-0.1, 1.1), breaks = c(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0))+
-      annotate(geom = "text", size=5, family="Amiri", x = (Threshold/2), y = y.value*2.1, label = paste("Predicted to be", BaseLevel))+
-      annotate(geom = "text", size=5, family="Amiri", x = ((1+Threshold)/2), y = y.value*2.1, label = paste("Predicted to be", FirstLevel))+
-      annotate(geom = "text", size=5, family="Amiri", x = -0.05, y = y.value, label = GText_0, angle = 90)+
-      annotate(geom = "text", size=5, family="Amiri", x = 1, y = y.value, label = GText_1, angle = 90)+
-      ggtitle(Title, subtitle = Subtitle)+scale_y_continuous("Number of Cases")
-  } else if (plt_type == "glm"){
-    if (length(IVs)==1){
-      test$Values = test$predicted.probability
-      PredictedLevels = levels(test[[DV]])
-      test$PredictedFactor = as.character(test[[DV]])
-      test$PredictedFactor[test$PredictedFactor==PredictedLevels[1]]=0
-      test$PredictedFactor[test$PredictedFactor==PredictedLevels[2]]=1
-      test$PredictedFactor = as.numeric(test$PredictedFactor)
-      Drawing =ggplot(data = test,mapping= aes(x = Values, y=PredictedFactor))+
-        geom_jitter(shape = 21, color = "#7c0a02", fill="white",size = 4,width = 0.1, height = 0)+
-        stat_smooth(method = "glm", method.args = list(family = "binomial"),se=F,color="#7c0a02",size=4)+
-        scale_y_continuous(name = DV,breaks=c(0,1), labels= c(levels(test[[DV]])[1],levels(test[[DV]])[2]))+
-        scale_x_continuous(name = paste0(IVs,collapse = "+"))+
-        ggtitle(Title,subtitle = Subtitle)+
-        TypicalTheme
-    }else{
-      Drawing = ("Can't draw glm smoothed figure when there is more than one predictor")
-    }
-  }
-  
-  #Create a dataframe that contains only the needed data
-  data_frame_essential = data.frame(predicted.probability= test$predicted.probability,
-                                    predicted.outcome = test$predicted.outcome,
-                                    actual.outcome = test[[DV]])
-  
-  for (i in 2:length(as.character(Model$formula[[3]]))){
-    local_factor= as.character(Model$formula[[3]])[i]
-    data_frame_essential[[local_factor]]=test[[local_factor]]
-  }
-  
-  #Create prediction matrix
-  PredMatrix=table(data_frame_essential$predicted.outcome,data_frame_essential$actual.outcome)
-  #in case all cases are predicted to be 0 or 1, this will make PredMatrixa 1-row matrix. So, I will go through items one by one
-  for (i in 1:length(rownames(PredMatrix))){
-    rownames(PredMatrix)[i]=gsub(rownames(PredMatrix)[i],paste0(rownames(PredMatrix)[i],"(Predicted)"),rownames(PredMatrix)[i])
-  }
-  colnames(PredMatrix)=c("0(Actual)","1(Actual)")
-  
-  roc.info = "No ROC"
-  if (nlevels(test[[DV]]) == 2){
-    cases_probs = test$predicted.probability
-    test_values = factor(test[[DV]])
-    test_values = relevel(test_values, control)
-    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
-                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-  }
-  print(data_frame_essential)
-  print(c(length(Beta), length(SE), length(Lower.CI), length(odds_ratio), length(Upper.CI), length(Zvalues), length(Pvalues)))
-  LogValues=data.frame(Beta, SE, Lower.CI, odds_ratio, Upper.CI, Zvalues, Pvalues)
-  DerivedValues=data.frame(chisq=modelChi, df=chidf, p.value.chi=chisq.prob, r2.hl=R2.hl, r2.cs=R2.cs, r2.n=R2.n, sensitivity=Sensitivity, specificity=Specificity)
-  DataList=list(data_frame = data_frame_essential,
-                log.values=LogValues, derived.values=DerivedValues,
-                prob.formula = paste("Probability of Y occuring = ","1/(1 + e ^ -(",Xs,")",sep = ""),
-                PredMatrix = PredMatrix,
-                ROC = roc.info,
-                Model = Model)
-  
-  print (Drawing)
-
-  return (DataList)
-  
-}
 
 
 # create a projections glm model
@@ -1787,11 +1961,13 @@ Form = as.formula(paste0("Diagnosis ~ ",paste0(subscales,collapse =  "+")))
 ModelTPQ = glm(Form, data = TPQ, family = binomial())
 #ModelTPQ = step(ModelTPQ,direction = "back")
 summary(ModelTPQ)
-LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =subscales, control = "HC",
+
+TPQ_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =subscales, control = "HC",
                  Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
 
 PETPE = cv.glm(data = TPQ ,ModelTPQ ,K=10)$delta[2]
 print(paste("TPQ Model accuracy based on 10 fold cv = ", 100*(1-round(PETPE,3)),"%"))
+
 
 # Create a TPQ questions glm model
 TPQ_NA = na.exclude(TPQ[,c("Diagnosis",included_questions)])
@@ -2010,138 +2186,7 @@ pro_fast$Diagnosis = factor(pro_fast$Diagnosis)
 pro_fastsk$Diagnosis = factor(pro_fastsk$Diagnosis)
 
 
-show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "linear", perc = 0.8, plot.ROC=TRUE, k.fold = 0, weighted = TRUE){
 
-  # Function to calculate SVM. It will plot the SVM function if there were only two IVs
-  # It will also plot an ROC curve, if specified, and if there are exactly two levels of the DV
-  # Also, when k.fold > 1, there will be no plotting of any type
-  # data_frame: the dataframe to be included,
-  # DV: dependent variable
-  # IVs: independent variables to predict the model from
-  # control: the level name of controls in the DV, usually set to "HC"
-  # res: resolution of the plotted polygons
-  # k_type= kernel type, can be linear, polynomial, radial or sigmoid
-  # perc: percentage of training data set
-  # plot.ROC: boolean to plot ROC curve if needed
-  # k.fold: number of folds to test the data on
-  
-  data_frame = data_frame[colnames(data_frame) %in% DV| colnames(data_frame) %in% IVs]
-  data_frame = na.omit(data_frame)
-  data_frame[,IVs] = scale(data_frame[,IVs])
-  make_grid = function(x1,x2,n = 75){  
-    ## This function only creates a range of dots
-    # These dots will be colored according to the predicted value based on our data
-    x1 = seq(from = min(x1)-0.5, to = max(x1)+0.5, length = n)
-    x2 = seq(from = min(x2)-0.5, to = max(x2)+0.5, length = n)
-    
-    new_df = expand.grid(X1 = x1, X2 = x2)
-    colnames(new_df) = colnames(data_frame)[1:2]
-    
-    return(new_df)
-  }
-  
-  convert_to_sf = function(new_df){
-    # The next part converts the grid data frame to a group of polygons of class sf
-    pre_raster_df = new_df
-    pre_raster_df = cbind(pre_raster_df, cat = rep(1L, nrow(pre_raster_df)),stringsAsFactors = FALSE)
-    
-    # formula coordinates will be based on the colnames of the data input (e.g. ~X1+X2)
-    cor_form = as.formula(paste0("~",colnames(new_df)[1],"+", colnames(new_df)[2]))
-    coordinates(pre_raster_df) = cor_form
-    gridded(pre_raster_df) <- TRUE
-    
-    # create raster df
-    raster_df <- raster(pre_raster_df)
-    
-    # create spatial polygons
-    sp_df = rasterToPolygons(raster_df, dissolve = TRUE)
-    
-    # convert polygons of class sf
-    sf_polygons = st_as_sf(sp_df)
-    
-    return(sf_polygons)
-  }
-  
-  # create a test and train data sets
-  
-  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
-  train = data_frame[train_inds,]
-  test = data_frame[-train_inds,]
-  
-  if (weighted){
-    classes = levels(train[[DV]])
-    c.weights = sapply(classes, function(x) length(train[[DV]])/sum(train[[DV]] == x))
-  }
-  Formula = as.formula(paste0(DV," ~ ",paste0(IVs,collapse = "+")))
-  svm_model = svm(Formula, data = train, kernel = k_type, cost = 1, scale = TRUE, probability = TRUE, cross = k.fold, class.weights = c.weights)
-  
-  if (length(IVs) == 2){
-    grid = make_grid(train[[IVs[1]]],train[[IVs[2]]], n = res)
-    preds = predict(svm_model, grid)
-    predicted_df = data.frame(X1 = grid[,1], X2 = grid[,2], Y=preds)
-    sf_polygons = convert_to_sf(predicted_df)
-    
-    Colors = c("#C33E3B","#4EA3DF","#6cBE58","#808CA3","#B9B0AB","#2F4F4F", "#CC6666", "#9999CC", "#66CC99","#682860","#FBEC5D","#FF6347","#FF3800","#1B4D3E","#E30B5D")
-    # plot the model
-    g_svm = ggplot()+
-      geom_sf(data = sf_polygons, alpha = 0.25, mapping= aes(x=NULL,y=NULL,group = Y,fill = Y))+
-      scale_fill_gradientn(breaks = 1:length(IVs),colors = Colors[1:length(IVs)])+
-      geom_point(data = train,mapping = aes(x = .data[[IVs[1]]], y =.data[[IVs[2]]],color = .data[[DV]]),size = 3)+
-      scale_color_manual(values = Colors)+
-      ggtitle("Data points of the variables X0 and X1", subtitle = "Original Data with Predicted Values")+
-      MinimalTheme
-    
-    print(g_svm)
-  }
-    
-  
-  preds = predict(svm_model, test, probability = TRUE)
-  roc.info = "No ROC"
-  if (nlevels(test[[DV]]) == 2){
-    cases_probs = as.data.frame(attr(preds, "probabilities"))[[control]]
-    test_values = factor(test[[DV]])
-    test_values = relevel(test_values, control)
-    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
-                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-  }
-  Accuracy = round(mean(preds== test[[DV]]),digits = 4)
-  res_table = table(predicted = preds, actual = test[[DV]])
-  if (k.fold>1){
-    folds = createFolds(train[[DV]], k = k.fold)
-  
-    # in cv we are going to applying a created function to our 'folds'
-    roc_list = list()
-    cv = lapply(folds, function(x) { # start of function
-      training_fold = train[-x, ]
-      test_fold = train[x, ] # here we describe the test fold individually
-      # now apply (train) the classifer on the training_fold
-      svm_fold = svm(formula = Formula,
-                     data = training_fold,
-                     type = 'C-classification',
-                     kernel = k_type,
-                     probability = TRUE, cost = 1, scale = TRUE,class.weights = c.weights)
-      
-      preds_fold = predict(svm_fold, test_fold, probability = TRUE)
-      roc.info = "No ROC"
-      if (nlevels(test[[DV]]) == 2){
-        cases_probs = as.data.frame(attr(preds_fold, "probabilities"))[[control]]
-        test_values = factor(test_fold[[DV]])
-        test_values = relevel(test_values, control)
-        roc.info_fold = roc(test_values, cases_probs, plot = TRUE, levels = levels(test_values),
-                       percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-        roc_list = append(roc_list, list(roc.info_fold))
-      }
-      Accuracy_fold = round(mean(preds_fold== test_fold[[DV]]),digits = 4)
-      
-      return(c(Accuracy_fold,roc.info_fold$auc))
-    })
-    cv = t(data.frame(cv))
-    colnames(cv) = c("Accuracy","AUC")
-  }else{
-    cv = "Data were not cross validated"
-  }
-  return(list(svm = svm_model,accuracy = svm_model$tot.accuracy, c_matrix = res_table, ROC = roc.info, roc_cv = roc_list, cv = cv))
-}
 
 
 svm_info_lin = show_svm(data_frame = pro_fast, k_type = "linear",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
@@ -2212,15 +2257,15 @@ for (item in names(TPQQuestions)){
   or_tpq[[item]] = apply(or_tpq[,question_labels], 1, sum, na.rm = TRUE)
 }
 
+
 svm_cloninger_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "linear", k.fold = 10)
 svm_cloninger_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "radial", k.fold = 10)
 svm_cloninger_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "polynomial", k.fold = 10)
 
 # plot ROC
-ggroc(list(IC_based=svm_info_lin$ROC,Cloninger =svm_cloninger_lin$ROC))+
-  TypicalTheme+
-  scale_color_manual(values = c("#00A550","#Eb4C42"))+
-  ggtitle("ROC Curve for SVM", subtitle = "For IC-Decomposed VS Traditional Temperaments")
+test_roc(svm_info_lin$ROC,svm_cloninger_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+         Subtitle = "For the Ability of SVM Model to Predict the Presence of Depression")
+# to plot average roc curve with a data frame: https://cran.r-project.org/web/packages/plotROC/vignettes/examples.html
 
 # CLoninger appears to have very low predictive value for MDD
 
@@ -2251,35 +2296,6 @@ library(class)
 df = pro_all
 DV = "Diagnosis"
 IVs = paste0("IC",1:10)
-show_knn = function(df, DV, IVs, perc, control = "HC", plot.ROC = TRUE){
-  nor <-function(x) {(x -min(x))/(max(x)-min(x))}
-  
-  df = na.omit(df[,c(IVs,DV)])
-  data_norm <- as.data.frame(lapply(df[,IVs], nor))
-  
-  train_inds = sample(1:nrow(df), size = perc*nrow(df))
-  df_train = data_norm[train_inds,] 
-  df_test = data_norm[-train_inds,] 
-  
-  train_category = df[train_inds,colnames(df) == DV]
-  
-  test_category <- df[-train_inds,colnames(df) == DV]
-  
-  predicted = knn(df_train,df_test,cl=train_category,k=13, prob = TRUE)
-  
-  roc.info = "No ROC"
-  if (nlevels(test[[DV]]) == 2){
-    cases_probs = attr(predicted, "prob")
-    test_values = factor(test[[DV]])
-    test_values = relevel(test_values, control)
-    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
-                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-  }
-  tab = table(predicted,test_category)
-  Accuracy = mean(predicted == test_category)
-
-  return(list(tab, Accuracy, roc.info))
-}
 
 ###########################
 # projections
