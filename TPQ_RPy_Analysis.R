@@ -284,9 +284,9 @@ test_roc = function(roc1, roc2, name1 = "ROC1", name2 = "ROC2", control = "HC",S
   roc2_df = data.frame(D=factor(roc2$original.response, ordered = TRUE, levels = c(control, case)), M1 = roc2$original.predictor)
   
   color1 = "#808CA3"
-  color2 = "#B9B0AB"
+  color2 = "#2F4F4F"
   
-  roc_test = roc.test(svm_cloninger_lin$ROC,svm_info_lin$ROC)
+  roc_test = roc.test(roc1,roc2)
   roc_p = round(roc_test$p.value,4)
   roc_stat = round(roc_test$statistic,3)
   roc_est = round(roc_test$parameter,3)
@@ -295,14 +295,12 @@ test_roc = function(roc1, roc2, name1 = "ROC1", name2 = "ROC2", control = "HC",S
     geom_roc(data = roc1_df, mapping = aes(d = D, m = M1), color = color1, n.cuts = 0)+style_roc()+
     geom_roc(data = roc2_df, mapping = aes(d = D, m = M1), color = color2, n.cuts = 0)+
     theme_bw(base_size = 18,base_family = "Amiri")+
-    theme(plot.title = element_text(hjust = 0.5),plot.subtitle = element_text(hjust = 0.5,face = "italic"))
-    #TypicalTheme+
-    
-    geom_text(aes(x= 0.9,y=0.45,label = perc1), color = color1)+
-    geom_text(aes(x= 0.9,y=0.4,label = perc2), color = color2)+
-    geom_text(aes(x= 0.6,y=0.45,label = c(rep("",(d.len1-1)),name1)), color = color1)+
-    geom_text(aes(x= 0.6,y=0.4,label = c(rep("",(d.len2-1)),name2)), color = color2)+
-    geom_text(aes(x= 0.75,y=0.25,label = roc_test_text), color = "black")+
+    theme(plot.title = element_text(hjust = 0.5),plot.subtitle = element_text(hjust = 0.5,face = "italic"))+
+    geom_text(aes(x= 0.8,y=0.45,label = perc1), color = color1)+
+    geom_text(aes(x= 0.8,y=0.4,label = perc2), color = color2)+
+    geom_text(aes(x= 0.5,y=0.45,label = c(rep("",(d.len1-1)),name1)), color = color1)+
+    geom_text(aes(x= 0.5,y=0.4,label = c(rep("",(d.len2-1)),name2)), color = color2)+
+    geom_text(aes(x= 0.65,y=0.25,label = roc_test_text), color = "black")+
     #scale_x_continuous(name = "100 - Specificity (%)", labels = c(0,25,50,75,100))+
     #scale_y_continuous(name = "Sensitivity (%)", breaks = c(0.0,0.25,0.5,0.75,1.0), labels = c(0,25,50,75,100))+
     ggtitle(paste0("ROC Curves for ",name1," VS ",name2), subtitle = Subtitle)
@@ -348,7 +346,6 @@ LogisticFunction = function(Data, DV, IVs,control = "HC" , Threshold = 0.5, plt_
       test_values_num = ifelse(test_values==control, 0,1)
       roc.info_fold = roc(test_values, preds_fold, plot = TRUE, levels = levels(test_values),
                           percent = TRUE,legacy.axes = TRUE, print.auc = TRUE, auc = TRUE)
-      roc_list = append(roc_list, list(roc.info_fold))
     }
     return(list(length(test_values),accuracy_fold,roc.info_fold$auc,pred_error,roc.info_fold))
   })
@@ -528,6 +525,13 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
   data_frame = data_frame[colnames(data_frame) %in% DV| colnames(data_frame) %in% IVs]
   data_frame = na.omit(data_frame)
   data_frame[,IVs] = scale(data_frame[,IVs])
+  
+  # create a test and train data sets
+  
+  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
+  train = data_frame[train_inds,]
+  test = data_frame[-train_inds,]
+  
   make_grid = function(x1,x2,n = 75){  
     ## This function only creates a range of dots
     # These dots will be colored according to the predicted value based on our data
@@ -561,12 +565,6 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
     
     return(sf_polygons)
   }
-  
-  # create a test and train data sets
-  
-  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
-  train = data_frame[train_inds,]
-  test = data_frame[-train_inds,]
   
   if (weighted){
     classes = levels(train[[DV]])
@@ -609,8 +607,7 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
   if (k.fold>1){
     folds = createFolds(train[[DV]], k = k.fold)
     
-    # in cv we are going to applying a created function to our 'folds'
-    roc_list = list()
+    # in cv we are going to apply a created function to our 'folds'
     cv = lapply(folds, function(x) { # start of function
       training_fold = train[-x, ]
       test_fold = train[x, ] # here we describe the test fold individually
@@ -630,7 +627,6 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
         test_values_num = ifelse(test_values==control, 0,1)
         roc.info_fold = roc(test_values, cases_probs, plot = TRUE, levels = levels(test_values),
                             percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-        roc_list = append(roc_list, list(roc.info_fold))
       }
       Accuracy_fold = round(mean(preds_fold== test_fold[[DV]]),digits = 4)
       pred_error_fold = round(mean((test_values_num-cases_probs)^2),digits = 4)
@@ -642,7 +638,7 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
   }else{
     cv = "Data were not cross validated"
   }
-  return(list(svm = svm_model,accuracy = svm_model$tot.accuracy, c_matrix = res_table, ROC = roc.info, roc_cv = roc_list, cv = cv))
+  return(list(svm = svm_model,accuracy = svm_model$tot.accuracy, c_matrix = res_table, ROC = roc.info, cv = cv))
 }
 
 show_knn = function(df, DV, IVs, perc, control = "HC", plot.ROC = TRUE){
@@ -1968,6 +1964,9 @@ TPQ_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =subscales, control
 PETPE = cv.glm(data = TPQ ,ModelTPQ ,K=10)$delta[2]
 print(paste("TPQ Model accuracy based on 10 fold cv = ", 100*(1-round(PETPE,3)),"%"))
 
+# compare cloninger to the new method
+test_roc(Projections_glm$ROC,TPQ_glm$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+         Subtitle = "For the Ability of Logistic Regression Models to Predict the Presence of Depression")
 
 # Create a TPQ questions glm model
 TPQ_NA = na.exclude(TPQ[,c("Diagnosis",included_questions)])
@@ -2264,7 +2263,8 @@ svm_cloninger_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",
 
 # plot ROC
 test_roc(svm_info_lin$ROC,svm_cloninger_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
-         Subtitle = "For the Ability of SVM Model to Predict the Presence of Depression")
+         Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
+
 # to plot average roc curve with a data frame: https://cran.r-project.org/web/packages/plotROC/vignettes/examples.html
 
 # CLoninger appears to have very low predictive value for MDD
@@ -2313,7 +2313,73 @@ pro_all$Diagnosis = factor(pro_all$Diagnosis)
 pro_fast$Diagnosis = factor(pro_fast$Diagnosis)
 pro_fastsk$Diagnosis = factor(pro_fastsk$Diagnosis)
 
+data_frame = pro_all
+DV = "Diagnosis"
+IVs = paste0("IC",1:10)
+perc = 0.8
+show_knn = function(data_frame, DV, IVs, perc, control = "HC", plot.ROC = TRUE, k.fold = 10, k=3){
+  nor <-function(x) {(x -min(x))/(max(x)-min(x))}
+  data_frame = data_frame[colnames(data_frame) %in% DV| colnames(data_frame) %in% IVs]
+  data_frame = na.omit(data_frame)
 
+  # create a test and train data sets
+  
+  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
+  data_frame[,IVs] = as.data.frame(lapply(data_frame[,IVs], nor))
+  train = data_frame[train_inds,]
+  test = data_frame[-train_inds,]
+  knn_model = caret::knn3(train[,IVs], train[[DV]], k = k)
+  predicted = as.data.frame(predict(knn_model, test[,IVs]))
+  
+  if (k.fold>1){
+    folds = createFolds(train[[DV]], k = k.fold)
+    
+    # in cv we are going to apply a created function to our 'folds'
+    cv = lapply(folds, function(x) { # start of function
+      training_fold = train[-x, ]
+      test_fold = train[x, ] # here we describe the test fold individually
+      # now apply (train) the classifer on the training_fold
+      knn_fold = caret::knn3(training_fold[,IVs], training_fold[[DV]], k = k)
+      
+      preds_fold = predict(knn_fold, test_fold[,IVs], probability = TRUE)
+      cases_probs = 1-preds_fold[,colnames(preds_fold) == control]
+      controls = ifelse(preds_fold[,colnames(preds_fold) == control]>0.5,0,1)
+      roc.info_fold = "No ROC"
+      if (nlevels(test[[DV]]) == 2){
+        
+        test_values = factor(test_fold[[DV]])
+        test_values = relevel(test_values, control)
+        test_values_num = ifelse(test_values==control, 0,1)
+        roc.info_fold = roc(test_values, cases_probs, plot = TRUE, levels = levels(test_values),
+                            percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+      }
+      Accuracy_fold = round(mean(preds_fold== test_fold[[DV]]),digits = 4)
+      pred_error_fold = round(mean((test_values_num-cases_probs)^2),digits = 4)
+      
+      return(c(Accuracy_fold,roc.info_fold$auc,pred_error_fold))
+    })
+    cv = t(data.frame(cv))
+    colnames(cv) = c("Accuracy","AUC", "Pred.Error")
+  }else{
+    cv = "Data were not cross validated"
+  }
+  
+  
+  
+  # delete later
+  roc.info = "No ROC"
+  if (nlevels(test[[DV]]) == 2){
+    cases_probs = attr(predicted, "prob")
+    test_values = factor(test[[DV]])
+    test_values = relevel(test_values, control)
+    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
+                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+  }
+  tab = table(predicted,test_category)
+  Accuracy = mean(predicted == test_category)
+  
+  return(list(tab, Accuracy, roc.info))
+}
 knn_all = mean(sapply(1:50, function(x) show_knn(df = pro_all, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
 knn_fast = mean(sapply(1:50, function(x) show_knn(df = pro_fast, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
 knn_fastsk = mean(sapply(1:50, function(x) show_knn(df = pro_fastsk, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
