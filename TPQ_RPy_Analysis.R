@@ -344,7 +344,7 @@ LogisticFunction = function(Data, DV, IVs,control = "HC" , Threshold = 0.5, plt_
       test_values = factor(test_fold[[DV]])
       test_values = relevel(test_values, control)
       test_values_num = ifelse(test_values==control, 0,1)
-      roc.info_fold = roc(test_values, preds_fold, plot = TRUE, levels = levels(test_values),
+      roc.info_fold = roc(test_values, preds_fold, plot = FALSE, levels = levels(test_values),
                           percent = TRUE,legacy.axes = TRUE, print.auc = TRUE, auc = TRUE)
     }
     return(list(length(test_values),accuracy_fold,roc.info_fold$auc,pred_error,roc.info_fold))
@@ -625,7 +625,7 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
         test_values = factor(test_fold[[DV]])
         test_values = relevel(test_values, control)
         test_values_num = ifelse(test_values==control, 0,1)
-        roc.info_fold = roc(test_values, cases_probs, plot = TRUE, levels = levels(test_values),
+        roc.info_fold = roc(test_values, cases_probs, plot = FALSE, levels = levels(test_values),
                             percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
       }
       Accuracy_fold = round(mean(preds_fold== test_fold[[DV]]),digits = 4)
@@ -641,34 +641,72 @@ show_svm = function(data_frame, DV, IVs, control = "HC", res = 75, k_type = "lin
   return(list(svm = svm_model,accuracy = svm_model$tot.accuracy, c_matrix = res_table, ROC = roc.info, cv = cv))
 }
 
-show_knn = function(df, DV, IVs, perc, control = "HC", plot.ROC = TRUE){
+
+show_knn = function(data_frame, DV, IVs, perc, control = "HC", plot.ROC = TRUE, k.fold = 10, k=10){
   nor <-function(x) {(x -min(x))/(max(x)-min(x))}
+  data_frame = data_frame[colnames(data_frame) %in% DV| colnames(data_frame) %in% IVs]
+  data_frame = na.omit(data_frame)
   
-  df = na.omit(df[,c(IVs,DV)])
-  data_norm <- as.data.frame(lapply(df[,IVs], nor))
+  # create a test and train data sets
   
-  train_inds = sample(1:nrow(df), size = perc*nrow(df))
-  df_train = data_norm[train_inds,] 
-  df_test = data_norm[-train_inds,] 
-  
-  train_category = df[train_inds,colnames(df) == DV]
-  
-  test_category <- df[-train_inds,colnames(df) == DV]
-  
-  predicted = knn(df_train,df_test,cl=train_category,k=13, prob = TRUE)
-  
-  roc.info = "No ROC"
+  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
+  data_frame[,IVs] = as.data.frame(lapply(data_frame[,IVs], nor))
+  train = data_frame[train_inds,]
+  test = data_frame[-train_inds,]
+  knn_model = caret::knn3(train[,IVs], train[[DV]], k = k)
+  predicted = as.data.frame(predict(knn_model, test[,IVs]))
+  case_name = "NA"
   if (nlevels(test[[DV]]) == 2){
-    cases_probs = attr(predicted, "prob")
+    case_name = colnames(preds_fold)[colnames(preds_fold)!=control]
+    
+    cases_probs = 1-predicted[colnames(predicted) == control][[1]]
     test_values = factor(test[[DV]])
     test_values = relevel(test_values, control)
     roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
-                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE, auc = TRUE)
   }
-  tab = table(predicted,test_category)
-  Accuracy = mean(predicted == test_category)
+  if (k.fold>1){
+    folds = createFolds(train[[DV]], k = k.fold)
+    
+    # in cv we are going to apply a created function to our 'folds'
+    cv = lapply(folds, function(x) { # start of function
+      training_fold = train[-x, ]
+      test_fold = train[x, ] # here we describe the test fold individually
+      # now apply (train) the classifer on the training_fold
+      knn_fold = caret::knn3(training_fold[,IVs], training_fold[[DV]], k = k)
+      
+      preds_fold = predict(knn_fold, test_fold[,IVs], probability = TRUE)
+      cases_probs = 1-preds_fold[,colnames(preds_fold) == control]
+      controls = ifelse(preds_fold[,colnames(preds_fold) == control]>0.5,0,1)
+      roc.info_fold = "No ROC"
+      if (nlevels(test[[DV]]) == 2){
+        
+        test_values = factor(test_fold[[DV]])
+        test_values = relevel(test_values, control)
+        test_values_num = ifelse(test_values==control, 0,1)
+        roc.info_fold = roc(test_values, cases_probs, plot = FALSE, levels = levels(test_values),
+                            percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
+      }
+      preds_category_fold = ifelse(preds_fold[colnames(preds_fold) == control]>0.5,control,case_name)
+      Accuracy_fold = round(mean(preds_category_fold== test_fold[[DV]]),digits = 4)
+      pred_error_fold = round(mean((test_values_num-cases_probs)^2),digits = 4)
+      
+      
+      return(c(Accuracy_fold,roc.info_fold$auc,pred_error_fold))
+    })
+    cv = t(data.frame(cv))
+    colnames(cv) = c("Accuracy","AUC", "Pred.Error")
+  }else{
+    cv = "Data were not cross validated"
+  }
   
-  return(list(tab, Accuracy, roc.info))
+  preds_categories = ifelse(predicted[colnames(predicted) == control]>0.5,control,case_name)
+  Accuracy = mean(preds_categories == test_category)
+  
+  res_table = table(predicted = preds_categories, actual = test[[DV]])
+  
+  
+  return(list(knn = knn_model,accuracy = Accuracy, c_matrix = res_table, ROC = roc.info, cv = cv))
 }
 
 
@@ -818,6 +856,7 @@ ggplot(data = all_sources_melted_dia, mapping = aes(x = Sources_sorted_all,y=Sou
           - Each IC in the \'Separate\' decomposition represents the most correlating IC with the \'Combined\' decomposition
           - The name of the most correlating IC from the separate group and its value of correlation are on the left")+
   MinimalTheme
+
 
 ggplot(data = sources_melted_all, mapping = aes(x = Sources_sorted_all,y= Group))+
   geom_raster(aes(fill = Sources_group_scaled))+
@@ -1958,14 +1997,19 @@ ModelTPQ = glm(Form, data = TPQ, family = binomial())
 #ModelTPQ = step(ModelTPQ,direction = "back")
 summary(ModelTPQ)
 
-TPQ_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =subscales, control = "HC",
-                 Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
+TPQ_subscales_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =subscales, control = "HC",
+                                     Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
+
+TPQ_scales_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =c("NS","HA","RD"), control = "HC",
+                                     Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
 
 PETPE = cv.glm(data = TPQ ,ModelTPQ ,K=10)$delta[2]
 print(paste("TPQ Model accuracy based on 10 fold cv = ", 100*(1-round(PETPE,3)),"%"))
 
 # compare cloninger to the new method
-test_roc(Projections_glm$ROC,TPQ_glm$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+test_roc(Projections_glm$ROC,TPQ_subscales_glm$ROC, name1 = "IC-based", name2 = "Traditional Personality Subscales",
+         Subtitle = "For the Ability of Logistic Regression Models to Predict the Presence of Depression")
+test_roc(Projections_glm$ROC,TPQ_scales_glm$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
          Subtitle = "For the Ability of Logistic Regression Models to Predict the Presence of Depression")
 
 # Create a TPQ questions glm model
@@ -2257,12 +2301,19 @@ for (item in names(TPQQuestions)){
 }
 
 
-svm_cloninger_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "linear", k.fold = 10)
-svm_cloninger_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "radial", k.fold = 10)
-svm_cloninger_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "polynomial", k.fold = 10)
+svm_cloninger_subscales_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "linear", k.fold = 10)
+svm_cloninger_subscales_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "radial", k.fold = 10)
+svm_cloninger_subscales_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "polynomial", k.fold = 10)
+
+svm_cloninger_scales_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "linear", k.fold = 10)
+svm_cloninger_scales_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "radial", k.fold = 10)
+svm_cloninger_scales_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "polynomial", k.fold = 10)
 
 # plot ROC
-test_roc(svm_info_lin$ROC,svm_cloninger_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+test_roc(svm_info_lin$ROC,svm_cloninger_subscales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Subscales",
+         Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
+# plot ROC
+test_roc(svm_info_lin$ROC,svm_cloninger_scales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
          Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
 
 # to plot average roc curve with a data frame: https://cran.r-project.org/web/packages/plotROC/vignettes/examples.html
@@ -2313,76 +2364,12 @@ pro_all$Diagnosis = factor(pro_all$Diagnosis)
 pro_fast$Diagnosis = factor(pro_fast$Diagnosis)
 pro_fastsk$Diagnosis = factor(pro_fastsk$Diagnosis)
 
-data_frame = pro_all
-DV = "Diagnosis"
-IVs = paste0("IC",1:10)
-perc = 0.8
-show_knn = function(data_frame, DV, IVs, perc, control = "HC", plot.ROC = TRUE, k.fold = 10, k=3){
-  nor <-function(x) {(x -min(x))/(max(x)-min(x))}
-  data_frame = data_frame[colnames(data_frame) %in% DV| colnames(data_frame) %in% IVs]
-  data_frame = na.omit(data_frame)
 
-  # create a test and train data sets
-  
-  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
-  data_frame[,IVs] = as.data.frame(lapply(data_frame[,IVs], nor))
-  train = data_frame[train_inds,]
-  test = data_frame[-train_inds,]
-  knn_model = caret::knn3(train[,IVs], train[[DV]], k = k)
-  predicted = as.data.frame(predict(knn_model, test[,IVs]))
-  
-  if (k.fold>1){
-    folds = createFolds(train[[DV]], k = k.fold)
-    
-    # in cv we are going to apply a created function to our 'folds'
-    cv = lapply(folds, function(x) { # start of function
-      training_fold = train[-x, ]
-      test_fold = train[x, ] # here we describe the test fold individually
-      # now apply (train) the classifer on the training_fold
-      knn_fold = caret::knn3(training_fold[,IVs], training_fold[[DV]], k = k)
-      
-      preds_fold = predict(knn_fold, test_fold[,IVs], probability = TRUE)
-      cases_probs = 1-preds_fold[,colnames(preds_fold) == control]
-      controls = ifelse(preds_fold[,colnames(preds_fold) == control]>0.5,0,1)
-      roc.info_fold = "No ROC"
-      if (nlevels(test[[DV]]) == 2){
-        
-        test_values = factor(test_fold[[DV]])
-        test_values = relevel(test_values, control)
-        test_values_num = ifelse(test_values==control, 0,1)
-        roc.info_fold = roc(test_values, cases_probs, plot = TRUE, levels = levels(test_values),
-                            percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-      }
-      Accuracy_fold = round(mean(preds_fold== test_fold[[DV]]),digits = 4)
-      pred_error_fold = round(mean((test_values_num-cases_probs)^2),digits = 4)
-      
-      return(c(Accuracy_fold,roc.info_fold$auc,pred_error_fold))
-    })
-    cv = t(data.frame(cv))
-    colnames(cv) = c("Accuracy","AUC", "Pred.Error")
-  }else{
-    cv = "Data were not cross validated"
-  }
-  
-  
-  
-  # delete later
-  roc.info = "No ROC"
-  if (nlevels(test[[DV]]) == 2){
-    cases_probs = attr(predicted, "prob")
-    test_values = factor(test[[DV]])
-    test_values = relevel(test_values, control)
-    roc.info = roc(test_values, cases_probs, plot = plot.ROC, levels = levels(test_values),
-                   percent = TRUE,legacy.axes = TRUE, print.auc = TRUE)
-  }
-  tab = table(predicted,test_category)
-  Accuracy = mean(predicted == test_category)
-  
-  return(list(tab, Accuracy, roc.info))
-}
-knn_all = mean(sapply(1:50, function(x) show_knn(df = pro_all, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-knn_fast = mean(sapply(1:50, function(x) show_knn(df = pro_fast, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-knn_fastsk = mean(sapply(1:50, function(x) show_knn(df = pro_fastsk, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
+
+
+knn_all = show_knn(data_frame = pro_all, DV = "Diagnosis", IVs = paste0("IC",1:10),perc = 0.8,control = "HC", plot.ROC = TRUE, k.fold = 10, k=11)
+knn_fast = show_knn(data_frame = pro_fast, DV = "Diagnosis", IVs = paste0("IC",1:10),perc = 0.8,control = "HC", plot.ROC = TRUE, k.fold = 10, k=11)
+knn_fastsk = show_knn(data_frame = pro_fastsk, DV = "Diagnosis", IVs = paste0("IC",1:10),perc = 0.8,control = "HC", plot.ROC = TRUE, k.fold = 10, k=11)
 
 
 ###########################
@@ -2417,9 +2404,20 @@ for (item in names(TPQQuestions)){
   or_tpq[[item]] = apply(or_tpq[,question_labels], 1, sum, na.rm = TRUE)
 }
 
-show_knn(df = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)), perc = 0.8)
-tpq_subscale = mean(sapply(1:50, function(x) show_knn(df = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)), perc = 0.8)[[2]]))
-tpq_scale = mean(sapply(1:50, function(x) show_knn(df = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"), perc = 0.8)[[2]]))
+
+
+knn_tpq_subscale = show_knn(data_frame = or_tpq, DV = "Diagnosis", IVs =  c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),
+         perc = 0.8,control = "HC", plot.ROC = TRUE, k.fold = 10, k=13)
+
+knn_tpq_scale = show_knn(data_frame = or_tpq, DV = "Diagnosis", IVs =  c("HA","NS","RD"),
+                        perc = 0.8,control = "HC", plot.ROC = TRUE, k.fold = 10, k=13)
+
+
+test_roc(knn_all$ROC,knn_tpq_subscale$ROC, name1 = "IC-based", name2 = "Traditional Personality Subscales",
+         Subtitle = "For the Ability of  KNN Model to Predict the Presence of Depression")
+
+test_roc(knn_all$ROC,knn_tpq_scale$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+         Subtitle = "For the Ability of KNN Model to Predict the Presence of Depression")
 
 #Cloninger is a little bit worse
 ###########################
