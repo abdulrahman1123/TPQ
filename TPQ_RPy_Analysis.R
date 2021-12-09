@@ -2348,9 +2348,9 @@ df = pro_all
 DV = "Diagnosis"
 IVs = paste0("IC",1:10)
 
-###########################
+## #########################
 # projections
-###########################
+## # ########################
 
 pro_all = ICASSO_all$projections[,c(9:18,2)]
 pro_fast = ICASSO_all_fast$projections[,c(9:18,2)]
@@ -2420,131 +2420,6 @@ test_roc(knn_all$ROC,knn_tpq_scale$ROC, name1 = "IC-based", name2 = "Traditional
          Subtitle = "For the Ability of KNN Model to Predict the Presence of Depression")
 
 #Cloninger is a little bit worse
-###########################
-# sources
-###########################
-all_knn = mean(sapply(1:50, function(x) show_knn(df = all_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-fast_knn = mean(sapply(1:50, function(x) show_knn(df = fast_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-fastsk_knn = mean(sapply(1:50, function(x) show_knn(df = fastsk_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-hc_knn = mean(sapply(1:50, function(x) show_knn(df = hc_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-gad_knn = mean(sapply(1:50, function(x) show_knn(df = gad_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-mdd_knn = mean(sapply(1:50, function(x) show_knn(df = mdd_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-ptsd_knn = mean(sapply(1:50, function(x) show_knn(df = ptsd_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-tnp_knn = mean(sapply(1:50, function(x) show_knn(df = tnp_sources, DV = "scale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-
-all_knn = mean(sapply(1:50, function(x) show_knn(df = all_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-fast_knn = mean(sapply(1:50, function(x) show_knn(df = fast_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-fastsk_knn = mean(sapply(1:50, function(x) show_knn(df = fastsk_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-hc_knn = mean(sapply(1:50, function(x) show_knn(df = hc_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-gad_knn = mean(sapply(1:50, function(x) show_knn(df = gad_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-mdd_knn = mean(sapply(1:50, function(x) show_knn(df = mdd_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-ptsd_knn = mean(sapply(1:50, function(x) show_knn(df = ptsd_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-tnp_knn = mean(sapply(1:50, function(x) show_knn(df = tnp_sources, DV = "subscale", IVs = paste0("IC",1:10), perc = 0.8)[[2]]))
-
-
-# decision trees -------------------------------------------------------------
-
-library(dplyr)
-library(rpart.plot)
-library(rpart)
-
-
-
-show_decision_tree = function(data_frame, IVs, DV, perc = 0.8, dc_method = "class", min_split = 4,
-                              min_bucket = 2, max_depth = 3, c_p = 0, use_control = FALSE, plot = TRUE){
-  #hyperparameters
-  control = rpart.control(minsplit = min_split, # min number of observations before the algorith splits
-                          minbucket = min_bucket, # min number of observations in the final node
-                          maxdepth = max_depth, # max depth of a node (with the root being node 0)
-                          cp = c_p)
-  
-  
-  data_frame = data_frame[,c(IVs,DV)]
-  data_frame = na.omit(data_frame)
-  
-  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
-  train = data_frame[train_inds,]
-  test = data_frame[-train_inds,]
-  
-  Formula = as.formula(paste0(DV," ~ ",paste0(IVs,collapse = "+")))
-  if (use_control){
-    fit = rpart(Formula, data = train, method = dc_method, control = control) # you can use class for classification, and anova for regression
-  } else {
-    fit = rpart(Formula, data = train, method = dc_method)
-  }
-
-  if (plot){
-    rpart.plot(fit, extra = "auto") # extra is for extra information, refer to: https://cran.r-project.org/web/packages/rpart.plot/rpart.plot.pdf
-  }
-  
-  # make prediction
-  predict_unseen = predict(fit, test, type = "class")
-  pred_table = table(predicted = predict_unseen, actual = test[[DV]])
-  Accuracy = mean(predict_unseen == test[[DV]])
-  
-  return(list(pred_table, Accuracy))
-  
-}
-
-##############################
-# Projections
-##############################
-
-pro_all = ICASSO_all$projections[,c(9:18,2)]
-pro_fast = ICASSO_all_fast$projections[,c(9:18,2)]
-pro_fast_sk = ICASSO_all$projections[,c(9:18,2)]
-
-pro_all = pro_all[pro_all$Diagnosis %in% c("HC","MDD"),]
-pro_fast = pro_fast[pro_fast$Diagnosis %in% c("HC","MDD"),]
-pro_fast_sk = pro_fast_sk[pro_fast_sk$Diagnosis %in% c("HC","MDD"),]
-
-pro_all$Diagnosis = factor(pro_all$Diagnosis)
-pro_fast$Diagnosis = factor(pro_fast$Diagnosis)
-pro_fast_sk$Diagnosis = factor(pro_fast_sk$Diagnosis)
-
-dc_all = mean(sapply(1:50, function(x) show_decision_tree(data_frame = pro_all, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8, plot = FALSE)[[2]]))
-dc_fast = mean(sapply(1:50, function(x) show_decision_tree(data_frame = pro_fast, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8, plot = FALSE)[[2]]))
-dc_fast_sk = mean(sapply(1:50, function(x) show_decision_tree(data_frame = pro_all, DV = "Diagnosis", IVs = paste0("IC",1:10), perc = 0.8, plot = FALSE)[[2]]))
-
-
-##############################
-# Cloninger
-##############################
-tpq = ICASSO_all$tpq
-
-or_tpq = as.data.frame(readxl::read_xlsx("G:/My Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx", na = "NA"))[c("Final ID", "Diagnosis", paste0("QO",1:100))]
-TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
-                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
-                    NS3=c(32, 66, 70, 72, 76, 78, 87),
-                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
-                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
-                    HA2=c(18, 19, 23, 26, 29, 47, 51),
-                    HA3=c(33, 37, 38, 42, 44, 89, 100),
-                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
-                    RD1=c(27, 31, 34, 83, 94),
-                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
-                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
-                    RD4=c(17, 20, 25, 36, 58),
-                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
-                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
-                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
-
-
-
-or_tpq = or_tpq[or_tpq$`Final ID` %in% tpq$ID,]
-or_tpq[,paste0("QO",1:100)] = ifelse(or_tpq[,paste0("QO",1:100)] == "T", 1, ifelse(or_tpq[,paste0("QO",1:100)] == "F",0,NA))
-or_tpq = or_tpq[or_tpq$Diagnosis %in% c("MDD","HC"),]
-or_tpq$Diagnosis = factor(or_tpq$Diagnosis)
-
-for (item in names(TPQQuestions)){
-  question_labels = paste0("QO",TPQQuestions[[item]])
-  or_tpq[[item]] = apply(or_tpq[,question_labels], 1, sum, na.rm = TRUE)
-}
-
-
-dc_subscales = mean(sapply(1:50, function(x) show_decision_tree(data_frame = or_tpq, DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)), perc = 0.8, plot = FALSE)[[2]]))
-dc_scales = mean(sapply(1:50, function(x) show_decision_tree(data_frame = or_tpq, DV = "Diagnosis",IVs = c("HA", "NS","RD"), perc = 0.8, plot = FALSE)[[2]]))
-
 ##############################
 # sources
 ##############################
@@ -2612,46 +2487,129 @@ all_dc_subscale
 fast_dc_subscale
 fastsk_dc_subscale
 
-# Experiments -------------------------------------------------------------
 
-# delete later
-#read valence data
+
+# Machine Learning -------------------------------------------------------------
+# Prepare projections
 library(readxl)
-valenced = data.frame(read_excel(paste0(path,"/TPQ_DataAndAnalysis/FactorCoding_19.07.2021.xlsx")))
-valenced[,1:7] = as.data.frame(apply(valenced[,1:7],2,as.factor))
-valenced[,1] = factor(valenced[,1], levels = valenced[,1])
+library(boot)
+library(e1071)
+library(ggplot2)
+library(sf)
+library(pROC)
+library(randomForest)
+library(caret)
+par(pty = "s") # to remove the side panels when plotting the ROC curve
 
-#add valence to sources
-sources_new = sources
-for (CN in colnames(valenced)[3:7]){
-  all_sources_melted[[CN]] = rep(valenced[[CN]],each = 10)
+Projections = ICASSO_all$projections
+Projections = Projections[(Projections$Diagnosis == "MDD" | Projections$Diagnosis == "HC"),]
+Projections$Diagnosis = factor(Projections$Diagnosis, levels = c("HC","MDD"))
+
+# prepare TPQ Data
+ex_dir = '/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx'
+
+TPQ = as.data.frame(read_excel(ex_dir))
+
+# convert all Questions to numeric
+TPQ[,paste0("Q",1:100)] = apply(TPQ[,paste0("Q",1:100)],2, as.numeric)
+TPQ[,c(paste0("NS",1:4),paste0("HA",1:4),paste0("RD",1:4),c("NS","HA","RD"))] = 
+  apply(TPQ[,c(paste0("NS",1:4),paste0("HA",1:4),paste0("RD",1:4),c("NS","HA","RD"))],2, as.numeric)
+
+
+# recalculate main dimensions, because they are not calculated by default
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+for (item in names(TPQQuestions)){
+  # convert Question values (0s and 1s) to numeric
+  TPQ[,paste0("Q",TPQQuestions[[item]])] = apply(TPQ[,paste0("Q",TPQQuestions[[item]])],2,as.numeric)
+  
+  # convret Question answers (T and F) to numeric
+  TPQ[,paste0("QO",TPQQuestions[[item]])][TPQ[,paste0("QO",TPQQuestions[[item]])] == "T"]=1
+  TPQ[,paste0("QO",TPQQuestions[[item]])][TPQ[,paste0("QO",TPQQuestions[[item]])] == "F"]=0
+  TPQ[,paste0("QO",TPQQuestions[[item]])]= apply(TPQ[,paste0("QO",TPQQuestions[[item]])], 2, as.numeric)
+  
+  # calculate Cloninger's subscales by just summing True values (because the values given to Jurgen were not flipped,
+  # so, I will calculate a Data-driven equivalent for these subscales)
+  TPQ[[paste0("O_",item)]]=apply(TPQ[,paste0("QO",TPQQuestions[[item]])], 1,sum, na.rm = TRUE)
 }
-ggplot(data = all_sources_melted, aes(x=Question, y= Sources_group, group =Group, color = Active_Passive))+
-  geom_bar(stat = "identity")+
-  facet_grid(Group~IC_all,scales = "free")+
-  geom_text(aes(x= 50,y=6,label = IC_group_plot))+
-  geom_text(aes(x= 50,y=10,label = Cor_plot))
-# end delete
 
-
-
-
-# delete later
-#read valence data
-library(readxl)
-valenced = data.frame(read_excel(paste0(path,"/TPQ_DataAndAnalysis/FactorCoding_19.07.2021.xlsx")))
-valenced[,1:7] = as.data.frame(apply(valenced[,1:7],2,as.factor))
-valenced[,1] = factor(valenced[,1], levels = valenced[,1])
-
-#add valence to all_sources_melted
-all_sources_melted_new = all_sources_melted
-for (CN in colnames(valenced)[3:7]){
-  all_sources_melted[[CN]] = rep(valenced[[CN]],each = 10)
+# Sum questions to reproduce scales and subscales
+for (item in names(TPQQuestions)){
+  TPQ[[item]] = apply(TPQ[,paste0("Q",TPQQuestions[[item]])],1,sum, na.rm = TRUE)
 }
-ggplot(data = all_sources_melted, aes(x=Question, y= Sources_group, group =Group, color = Active_Passive))+
-  geom_bar(stat = "identity")+
-  facet_grid(Group~IC_all,scales = "free")+
-  geom_text(aes(x= 50,y=6,label = IC_group_plot))+
-  geom_text(aes(x= 50,y=10,label = Cor_plot))
-# end delete
+# Make sure that TPQ includes the same subjects as the "Projections" data set, and no NAs are included
+TPQ = TPQ[as.character(TPQ$`Final ID`) %in% as.character(Projections$ID),]
+TPQ$Diagnosis = factor(TPQ$Diagnosis, levels = c("HC","MDD"))
 
+
+# Logistic Regression -------------------------------------------------------------
+Projections_glm = LogisticFunction(Data = Projections, DV = "Diagnosis", IVs =paste0("IC",1:10), control = "HC",
+                                   Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
+
+TPQ_subscales_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =subscales, control = "HC",
+                                     Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
+
+TPQ_scales_glm = LogisticFunction(Data = TPQ, DV = "Diagnosis", IVs =c("NS","HA","RD"), control = "HC",
+                                  Threshold = 0.5, plt_type = "histogram", perc= 0.8, plot.ROC = TRUE)
+
+# compare cloninger to the new method
+test_roc(Projections_glm$ROC,TPQ_subscales_glm$ROC, name1 = "IC-based", name2 = "Traditional Personality Subscales",
+         Subtitle = "For the Ability of Logistic Regression Models to Predict the Presence of Depression")
+test_roc(Projections_glm$ROC,TPQ_scales_glm$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+         Subtitle = "For the Ability of Logistic Regression Models to Predict the Presence of Depression")
+
+
+# SVM -------------------------------------------------------------
+
+# # # # # # # # # # # # 
+# IC-based SVM
+# # # # # # # # # # # # 
+pro_all = ICASSO_all$projections[,c(9:18,2)]
+pro_fast = ICASSO_all_fast$projections[,c(9:18,2)]
+pro_fastsk = ICASSO_all_fastsk$projections[,c(9:18,2)]
+
+#pro_fast = pro_fast[pro_fast$Diagnosis %in% c("HC","MDD"), colnames(pro_fast) %in% c("Diagnosis","IC1","IC2")]
+pro_all = pro_all[pro_all$Diagnosis %in% c("HC","MDD"),]
+pro_fast = pro_fast[pro_fast$Diagnosis %in% c("HC","MDD"),]
+pro_fastsk = pro_fastsk[pro_fastsk$Diagnosis %in% c("HC","MDD"),]
+
+pro_all$Diagnosis = factor(pro_all$Diagnosis)
+pro_fast$Diagnosis = factor(pro_fast$Diagnosis)
+pro_fastsk$Diagnosis = factor(pro_fastsk$Diagnosis)
+
+svm_info_lin = show_svm(data_frame = pro_all, k_type = "linear",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
+svm_info_rad = show_svm(data_frame = pro_all, k_type = "radial",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
+svm_info_pol = show_svm(data_frame = pro_all, k_type = "polynomial",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
+svm_info_sig = show_svm(data_frame = pro_all, k_type = "sigmoid",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
+
+
+# # # # # # # # # # # # 
+# Traditional SVM
+# # # # # # # # # # # # 
+svm_cloninger_subscales_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "linear", k.fold = 10)
+svm_cloninger_subscales_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "radial", k.fold = 10)
+svm_cloninger_subscales_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "polynomial", k.fold = 10)
+
+svm_cloninger_scales_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "linear", k.fold = 10)
+svm_cloninger_scales_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "radial", k.fold = 10)
+svm_cloninger_scales_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "polynomial", k.fold = 10)
+
+# plot ROC
+test_roc(svm_info_lin$ROC,svm_cloninger_subscales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Subscales",
+         Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
+# plot ROC
+test_roc(svm_info_lin$ROC,svm_cloninger_scales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
+         Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
