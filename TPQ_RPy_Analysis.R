@@ -8,11 +8,29 @@ library(corrplot)
 
 library(reticulate)
 library(readxl)
+
+# Prepare projections
+library(readxl)
+library(boot)
+library(e1071)
+library(ggplot2)
+library(sf)
+library(pROC)
+library(randomForest)
+library(caret)
+library(plotROC)
+library(psy)
+
+par(pty = "s") # to remove the side panels when plotting the ROC curve
+
 if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/")){
+  print("Home PC was found")
   use_python ("/home/abdulrahman/anaconda3/envs/mne/bin/python3", required = TRUE)
-}else if(dir.exists("/home/asawalma/anaconda3/envs/mne/bin/python3")){
+}else if(dir.exists("/home/asawalma/anaconda3/envs/mne/bin/")){
+  print("Office PC was found")
   use_python("/home/asawalma/anaconda3/envs/mne/bin/python3", required = TRUE)
 } else {
+  print("Some Windows PC was found")
   use_python("C:/Users/jsawa/Anaconda3/envs/mne/python.exe", required = TRUE)
 }
 
@@ -45,8 +63,25 @@ if (dir.exists("G:/My Drive")) {
 
 
 # load original scores
+TPQ_scores = as.data.frame(read_xlsx(scores_path, na = "NA"))
+gen_info = TPQ_scores[c("Diagnosis", "Final ID", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session")]
 
-or_scores = as.data.frame(read_xlsx(scores_path, na = "NA"))[c("Diagnosis", "Final ID", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session")]
+# Load question list for each dimension, it will be used in data analysis below
+TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
+                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
+                    NS3=c(32, 66, 70, 72, 76, 78, 87),
+                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
+                    HA2=c(18, 19, 23, 26, 29, 47, 51),
+                    HA3=c(33, 37, 38, 42, 44, 89, 100),
+                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD1=c(27, 31, 34, 83, 94),
+                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
+                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
+                    RD4=c(17, 20, 25, 36, 58),
+                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
+                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
+                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
 
 npz_tpq_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz')
 
@@ -71,18 +106,18 @@ prepare_icasso <- function(npz_tpq_path){
   
   
   # find the indices of original scores that correspond to the IDs in npz_tpq["IDs"]
-  inc_ids = npz_tpq["IDs"] %in% or_scores$`Final ID` # IDs in numpy array that are found in the original scores file
-  matched_inds = match(npz_tpq["IDs"],or_scores$`Final ID`)
+  inc_ids = npz_tpq["IDs"] %in% gen_info$`Final ID` # IDs in numpy array that are found in the original scores file
+  matched_inds = match(npz_tpq["IDs"],gen_info$`Final ID`)
   matched_inds = matched_inds[inc_ids]
   sub_info = data.frame(
     ID = factor(npz_tpq["IDs"][inc_ids],levels = npz_tpq["IDs"]),
-    Diagnosis = factor(or_scores$Diagnosis[matched_inds]),
-    Trauma = factor(or_scores$Trauma[matched_inds]),
-    GAD = factor(or_scores$GAD[matched_inds]),
-    Response = factor(or_scores$Response[matched_inds]),
-    PTSD = factor(or_scores$PTSD[matched_inds]),
-    MDD = factor(or_scores$MDD[matched_inds]),
-    Session = factor(or_scores$Session[matched_inds])
+    Diagnosis = factor(gen_info$Diagnosis[matched_inds]),
+    Trauma = factor(gen_info$Trauma[matched_inds]),
+    GAD = factor(gen_info$GAD[matched_inds]),
+    Response = factor(gen_info$Response[matched_inds]),
+    PTSD = factor(gen_info$PTSD[matched_inds]),
+    MDD = factor(gen_info$MDD[matched_inds]),
+    Session = factor(gen_info$Session[matched_inds])
   )
   
   data_tpq = data.frame(npz_tpq["data_tpq"])[inc_ids,]
@@ -126,7 +161,7 @@ icasso = npz_tpq['icasso'][[1]]
 unmixing = icasso$get_centrotype_unmixing()# of shape: [n_cluster, n_chan]
 unmixing = unmixing[1:15,]
 All_reco=np$transpose(icasso$ica2data(sources, unmixing, idx_keep=0:14))
-All_reco = All_reco[npz_tpq["IDs"] %in% or_scores$`Final ID`,]
+All_reco = All_reco[npz_tpq["IDs"] %in% gen_info$`Final ID`,]
 
 
 # define paths for variuos decompositions
@@ -2348,10 +2383,9 @@ df = pro_all
 DV = "Diagnosis"
 IVs = paste0("IC",1:10)
 
-## #########################
+## ## ## ## ## ## ## ## ## ## 
 # projections
-## # ########################
-
+## ## ## ## ## ## ## ## ## ## 
 pro_all = ICASSO_all$projections[,c(9:18,2)]
 pro_fast = ICASSO_all_fast$projections[,c(9:18,2)]
 pro_fastsk = ICASSO_all_fastsk$projections[,c(9:18,2)]
@@ -2372,9 +2406,9 @@ knn_fast = show_knn(data_frame = pro_fast, DV = "Diagnosis", IVs = paste0("IC",1
 knn_fastsk = show_knn(data_frame = pro_fastsk, DV = "Diagnosis", IVs = paste0("IC",1:10),perc = 0.8,control = "HC", plot.ROC = TRUE, k.fold = 10, k=11)
 
 
-###########################
+## ## ## ## ## ## ## ## ## ## 
 # Cloninger
-###########################
+## ## ## ## ## ## ## ## ## ## 
 tpq = ICASSO_all$tpq
 
 or_tpq = as.data.frame(readxl::read_xlsx("/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx", na = "NA"))[c("Final ID", "Diagnosis", paste0("QO",1:100))]
@@ -2420,9 +2454,9 @@ test_roc(knn_all$ROC,knn_tpq_scale$ROC, name1 = "IC-based", name2 = "Traditional
          Subtitle = "For the Ability of KNN Model to Predict the Presence of Depression")
 
 #Cloninger is a little bit worse
-##############################
+## ## ## ## ## ## ## ## ## ## 
 # sources
-##############################
+## ## ## ## ## ## ## ## ## ## 
 library(data.table)
 all_sources = transpose(ICASSO_all$sources, make.names = "IC")
 fast_sources = transpose(ICASSO_all_fast$sources, make.names = "IC")
@@ -2449,6 +2483,7 @@ TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
                     HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
                     RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
 
+###
 find_scale = function(scale_list,Q_num){
   Question = NA
   for (item in names(scale_list)){
@@ -2490,16 +2525,7 @@ fastsk_dc_subscale
 
 
 # Machine Learning -------------------------------------------------------------
-# Prepare projections
-library(readxl)
-library(boot)
-library(e1071)
-library(ggplot2)
-library(sf)
-library(pROC)
-library(randomForest)
-library(caret)
-par(pty = "s") # to remove the side panels when plotting the ROC curve
+
 
 Projections = ICASSO_all$projections
 Projections = Projections[(Projections$Diagnosis == "MDD" | Projections$Diagnosis == "HC"),]
@@ -2613,3 +2639,142 @@ test_roc(svm_info_lin$ROC,svm_cloninger_subscales_lin$ROC, name1 = "IC-based", n
 # plot ROC
 test_roc(svm_info_lin$ROC,svm_cloninger_scales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
          Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
+
+# Basic TPQ Analysis --------------------------------------------------------
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+#             Crobnach Alpha                  #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+
+return_alpha = function(item) {
+  # returns 3 items, the name of the subscale,
+  # c.alpha of males and c.alpha of females
+  
+  questions = paste0("Q", TPQQuestions[[item]])
+  df = TPQ_scores[questions]
+  M_alpha = cronbach(df[TPQ_scores$Gender == "Male", ])$alpha
+  F_alpha = cronbach(df[TPQ_scores$Gender == "Female", ])$alpha
+  return(c( M_alpha, F_alpha))
+}
+c_alpha_values = sapply(names(TPQQuestions), function(x) return_alpha(x))
+c_alpha_df = as.data.frame(t(c_alpha_values))
+colnames(c_alpha_df) = c("Males","Females")
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ## 
+#             Effect of Treatment on Temperaments                  #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ##
+scales = c("NS", "HA", "RD")
+subscales = c(paste0("NS",1:4),paste0("HA",1:4),paste0("RD",1:4))
+all_scales = c("NS",paste0("NS",1:4),"HA",paste0("HA",1:4),"RD",paste0("RD",1:4))
+
+scale_names = c("NS: Novelty Seeking",
+                "NS1: Exploratory excitability vs stoic rigidity",
+                "NS2: Impulsiveness vs reflection",
+                "NS3: Extravagance vs reserve",
+                "NS4: Disorderliness vs regimentation",
+                "HA: Harm avoidance",
+                "HA1: Anticipatory worry vs uninhibited optimism",
+                "HA2: Fear of uncertainty vs confidence",
+                "HA3: Shyness with strangers vs gregariousness",
+                "HA4: Fatigability and asthenia vs vigor",
+                "RD: Reward Dependence",
+                "RD1: Semtimentality vs insensitiveness",
+                "RD2: Persistence vs irresoluteness",
+                "RD3: Attachment vs detachment",
+                "RD4: Dependence vs independence")
+
+scale_names = c("NS: Novelty Seeking","NS1: Exploratory excitability","NS2: Impulsiveness","NS3: Extravagance","NS4: Disorderliness",
+                "HA: Harm avoidance", "HA1: Anticipatory worry", "HA2: Fear of uncertainty", "HA3: Shyness with strangers", "HA4: Fatigability and asthenia",
+                "RD: Reward Dependence", "RD1: Semtimentality", "RD2: Persistence", "RD3: Attachment", "RD4: Dependence")
+
+# Create the test-retest data set
+TPQ_scores_TR = TPQ_scores[complete.cases(TPQ_scores$`Initial ID`),]
+TPQ_scores_TR = TPQ_scores_TR[complete.cases(TPQ_scores_TR$Response),]
+TPQ_scores_TR = MatchDelete(TPQ_scores_TR,"Session","Initial ID")
+
+# Create array for the Test-retest data set(TPQ_scores_TR)
+Means_array = sapply(all_scales, function(x)
+  SMeans(TPQ_scores_TR, DV = x, IVs = c("Session", "Response"),
+    GroupBy = "Response"), simplify = FALSE)
+
+# Bind all data frames into one
+Means_df = Means_array[[1]]
+colnames(Means_df) = c("Value","SEM","Count","Session","Response","Groups")
+for (i in 2:length(Means_array)){
+  new_df = Means_array[[i]]
+  colnames(new_df) = c("Value","SEM","Count","Session","Response","Groups")
+  Means_df = rbind(Means_df,new_df)
+}
+
+# Add scales and subscales columns
+Means_df$subscale = factor(rep(c("Scale",paste("Sub_",1:4)), each = 6))
+Means_df$scale = factor(rep(scales, each = 30))
+
+# Add scale and subscale names
+Means_df$scale_names = ""
+Means_df$scale_names[seq(from = 1, to = 90, by = 6)] = scale_names
+# make session into a factor with levels = "Test"&"Retest"
+Means_df$Session = factor(Means_df$Session, levels = c("Test","Retest"))
+
+# plot all
+ggplot(Means_df, aes(x=Session, y=Value, group = Groups, color = Groups))+
+  geom_line(position = position_dodge(0.05),size=1)+
+  geom_errorbar(aes(ymax = Value+SEM,ymin = Value-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
+  TypicalTheme+
+  geom_text(mapping = aes(x=1.5,y=0,label = scale_names), color = "black")+
+  scale_color_manual(values = c("#6cBE58","#C33E3B","#4EA3DF"))+
+  ggtitle("Harm Avoidance Comparison According to Response")+
+  facet_grid(scale~subscale,scale = "free")
+
+
+# I will see the reconstructed data
+IC_length = length(ICASSO_all$reco)
+IC_sums = sapply(1:IC_length, function(x) apply(ICASSO_all$reco[[x]][,9:108],1,sum))
+TPQ_reco = ICASSO_all$reco[[1]][,1:8]
+
+TPQ_reco[paste0("IC",1:IC_length)] = IC_sums
+
+sapply(TPQ_reco$ID, function(id) TPQ_scores$`Initial ID`[TPQ_scores$`Final ID` == id])
+TPQ_reco$`Initial ID` = 
+
+# Create the test-retest data set
+ICA_scores_TR = TPQ_reco[complete.cases(TPQ_reco$`Initial ID`),]
+ICA_scores_TR = ICA_scores_TR[complete.cases(ICA_scores_TR$Response),]
+ICA_scores_TR = MatchDelete(ICA_scores_TR,"Session","Initial ID")
+
+# Create array for the Test-retest data set(TPQ_scores_TR)
+Means_array = sapply(all_scales, function(x)
+  SMeans(TPQ_scores_TR, DV = x, IVs = c("Session", "Response"),
+         GroupBy = "Response"), simplify = FALSE)
+
+# Bind all data frames into one
+Means_df = Means_array[[1]]
+colnames(Means_df) = c("Value","SEM","Count","Session","Response","Groups")
+for (i in 2:length(Means_array)){
+  new_df = Means_array[[i]]
+  colnames(new_df) = c("Value","SEM","Count","Session","Response","Groups")
+  Means_df = rbind(Means_df,new_df)
+}
+
+# Add scales and subscales columns
+Means_df$subscale = factor(rep(c("Scale",paste("Sub_",1:4)), each = 6))
+Means_df$scale = factor(rep(scales, each = 30))
+
+# Add scale and subscale names
+Means_df$scale_names = ""
+Means_df$scale_names[seq(from = 1, to = 90, by = 6)] = scale_names
+# make session into a factor with levels = "Test"&"Retest"
+Means_df$Session = factor(Means_df$Session, levels = c("Test","Retest"))
+
+# plot all
+ggplot(Means_df, aes(x=Session, y=Value, group = Groups, color = Groups))+
+  geom_line(position = position_dodge(0.05),size=1)+
+  geom_errorbar(aes(ymax = Value+SEM,ymin = Value-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
+  TypicalTheme+
+  geom_text(mapping = aes(x=1.5,y=0,label = scale_names), color = "black")+
+  scale_color_manual(values = c("#6cBE58","#C33E3B","#4EA3DF"))+
+  ggtitle("Harm Avoidance Comparison According to Response")+
+  facet_grid(scale~subscale,scale = "free")

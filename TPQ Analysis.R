@@ -541,6 +541,7 @@ SMeans <- function(Data, DV, IVs,GroupBy=NA_character_){
   FinalData=cbind(FinalData,FactorFrame)
   FinalData$Dummy=NULL
   
+  
   if (!is.na(GroupBy)){
     FinalData$Groups=paste0(FinalData[[GroupBy]]," (",FinalData$Count,")",sep="")
   }
