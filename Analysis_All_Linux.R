@@ -203,6 +203,55 @@ UMeans <- function(Data, DV, IV1, IV2=NA_character_,IV3=NA_character_,IV4=NA_cha
   }
   return (Final)
 }
+
+SMeans <- function(Data, DV, IVs,GroupBy=NA_character_){
+  NamesList=list(IVs)
+  FactorList={}
+  LevelsCount={}
+  for (item in IVs){
+    AddedLevels=levels(factor(Data[[item]]))
+    NLevels=nlevels(factor(Data[[item]]))
+    
+    FactorList = append(FactorList,list(AddedLevels))
+    LevelsCount = append(LevelsCount, NLevels)
+  }
+  FactorFrame=data.frame(Dummy=rep(NA,prod(LevelsCount)))
+  FactorNumber=length(LevelsCount)
+  
+  for (i in 1:length(IVs)){
+    EachRepetitionAmount = prod(LevelsCount[i:FactorNumber])/LevelsCount[i]
+    GeneralRepetitionAmount = prod(LevelsCount[1:i])/LevelsCount[i]
+    FactorFrame[[IVs[i]]] = rep(rep(FactorList[[i]],each=EachRepetitionAmount),GeneralRepetitionAmount)
+  }
+  FactorFrame$Dummy=NULL
+  
+  Means={}
+  SEM={}
+  Count={}
+  for (i in 1:prod(LevelsCount)){
+    Condition=rep(TRUE, nrow(Data))
+    for (j in 1:ncol(FactorFrame)){
+      Condition=Condition&(as.character(Data[[IVs[j]]])==FactorFrame[[j]][i])
+    }
+    
+    Means = append(Means,mean(Data[[DV]][Condition],na.rm = TRUE))
+    SEM = append(SEM,sd(Data[[DV]][Condition],na.rm = TRUE)/sqrt(length(Data[[DV]][Condition])))
+    Count = append(Count,length(Data[[DV]][Condition]))
+  } 
+  
+  FinalData=data.frame(Dummy=1:length(Means))
+  FinalData[[DV]]=Means
+  FinalData$SEM=SEM
+  FinalData$Count=Count
+  FinalData=cbind(FinalData,FactorFrame)
+  FinalData$Dummy=NULL
+  
+
+  if (!is.na(GroupBy)){
+    FinalData$Groups=paste0(FinalData[[GroupBy]]," (",FinalData$Count,")",sep="")
+  }
+  return (FinalData)
+}
 Attach.V <- function(data.frame1,data.frame2){
   #I will create a data frame with a length equal to the total length of the two data frames and put the Group variables in it
   Length1=nrow(data.frame1)

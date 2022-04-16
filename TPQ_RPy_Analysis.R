@@ -1,6 +1,5 @@
-
 # Data Preparation --------------------------------------------------------
-
+library(abind)
 library(reshape2)
 library(ggplot2)
 library(labelled)
@@ -20,7 +19,8 @@ library(randomForest)
 library(caret)
 library(plotROC)
 library(psy)
-
+library(psych)
+library(doParallel)
 par(pty = "s") # to remove the side panels when plotting the ROC curve
 
 if (dir.exists("/home/abdulrahman/anaconda3/envs/mne/bin/")){
@@ -62,10 +62,6 @@ if (dir.exists("G:/My Drive")) {
 }
 
 
-# load original scores
-TPQ_scores = as.data.frame(read_xlsx(scores_path, na = "NA"))
-gen_info = TPQ_scores[c("Diagnosis", "Final ID", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session")]
-
 # Load question list for each dimension, it will be used in data analysis below
 TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
                     NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
@@ -82,6 +78,20 @@ TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
                     NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
                     HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
                     RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
+
+# load original scores
+TPQ_scores = as.data.frame(read_xlsx(scores_path, na = "NA"))
+for (item in names(TPQQuestions)){
+  TPQ_scores[[item]] = apply(TPQ_scores[,paste0("Q",TPQQuestions[[item]])],1,sum, na.rm = TRUE)
+}
+
+# find which subjects have more than 10 unanswerd questions
+na_values = apply(is.na(TPQ_scores[,paste0("QO",1:100)]),1,sum) > 10
+TPQ_scores[na_values,names(TPQQuestions)] = NA
+
+TPQ_scores[,paste0("QO",1:100)] = ifelse(TPQ_scores[,paste0("QO",1:100)] =="T",TRUE,FALSE)
+
+gen_info = TPQ_scores[c("Diagnosis", "Final ID", "Trauma", "GAD", "Response", "PTSD", "MDD", "Session")]
 
 npz_tpq_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEinfomax.npz')
 
@@ -160,7 +170,7 @@ sources = sources[1:15,]
 icasso = npz_tpq['icasso'][[1]]
 unmixing = icasso$get_centrotype_unmixing()# of shape: [n_cluster, n_chan]
 unmixing = unmixing[1:15,]
-All_reco=np$transpose(icasso$ica2data(sources, unmixing, idx_keep=0:14))
+All_reco=np$transpose(icasso$ica2data(sources, unmixing, idx_keep=0:9))
 All_reco = All_reco[npz_tpq["IDs"] %in% gen_info$`Final ID`,]
 
 
@@ -169,24 +179,59 @@ all_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD/icasso_ICA
 all_fast_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD_FastICA_MNE/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_MNEfastica.npz')
 all_fastsk_path = paste0(path, '/ICASSO_fixed/decomp_tpq/HC,MDD,PTSD,TNP,GAD_FastICA_sklearn/icasso_ICA-tpq_HC,MDD,PTSD,TNP,GAD_nsamp1822_n_comp13_n_iter100_dist0.40_SklearnFastICA.npz')
 hc_path  = paste0(path, '/ICASSO_fixed/decomp_tpq/HC/icasso_ICA-tpq_HC_nsamp1202_n_comp13_n_iter100_dist0.30_MNEinfomax.npz')
+hc_retest_path  = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/HC/retest/icasso_ICA-tpq_HC_nsamp90_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+hc_test_path  = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/HC/test/icasso_ICA-tpq_HC_nsamp90_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+hc_test_retest_path ='' # fill later
+# TODO for MDD as well
+mdd_retest_path  = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD/retest/icasso_ICA-tpq_MDD_nsamp91_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+mdd_test_path  = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD/test/icasso_ICA-tpq_MDD_nsamp91_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
 mdd_path = paste0(path, '/ICASSO_fixed/decomp_tpq/MDD/icasso_ICA-tpq_MDD_nsamp455_n_comp13_n_iter100_dist0.30_MNEinfomax.npz')
 gad_path = paste0(path, '/ICASSO_fixed/decomp_tpq/GAD/icasso_ICA-tpq_GAD_nsamp30_n_comp13_n_iter100_dist0.30_MNEinfomax.npz')
 ptsd_path = paste0(path, '/ICASSO_fixed/decomp_tpq/PTSD/icasso_ICA-tpq_PTSD_nsamp57_n_comp13_n_iter100_dist0.30_MNEinfomax.npz')
 tnp_path = paste0(path, '/ICASSO_fixed/decomp_tpq/TNP/icasso_ICA-tpq_TNP_nsamp78_n_comp13_n_iter100_dist0.30_MNEinfomax.npz')
 disorders_path = paste0(path, '/ICASSO_fixed/decomp_tpq/MDD,PTSD,TNP,GAD/icasso_ICA-tpq_MDD,PTSD,TNP,GAD_nsamp620_n_comp13_n_iter100_dist0.30_MNEinfomax.npz')
+noHC_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD,PTSD,TNP,GAD/icasso_ICA-tpq_MDD,PTSD,TNP,GAD_nsamp620_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+noMDD_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/HC,PTSD,TNP,GAD/icasso_ICA-tpq_HC,PTSD,TNP,GAD_nsamp1367_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+noTNP_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/HC,MDD,PTSD,GAD/icasso_ICA-tpq_HC,MDD,PTSD,GAD_nsamp1744_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+noPTSD_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/HC,MDD,TNP,GAD/icasso_ICA-tpq_HC,MDD,TNP,GAD_nsamp1765_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+noGAD_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/HC,MDD,TNP,PTSD/icasso_ICA-tpq_HC,MDD,TNP,PTSD_nsamp1792_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+test_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/All/test/icasso_ICA-tpq_All_nsamp181_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+retest_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/All/retest/icasso_ICA-tpq_All_nsamp181_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+resp_test_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD/responders/test/icasso_ICA-tpq_MDD_nsamp51_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+resp_retest_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD/responders/retest/icasso_ICA-tpq_MDD_nsamp51_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+nonresp_test_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD/nonresponder/test/icasso_ICA-tpq_MDD_nsamp27_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
+nonresp_retest_path = '/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/ICASSO/decomp_tpq/MDD/nonresponder/retest/icasso_ICA-tpq_MDD_nsamp27_n_comp13_n_iter100_dist0.30_MNEinfomax.npz'
 
 # Load all data into lists of variables
 ICASSO_all = prepare_icasso(all_path)
 ICASSO_all_fast = prepare_icasso(all_fast_path)
 ICASSO_all_fastsk = prepare_icasso(all_fastsk_path)
 ICASSO_hc = prepare_icasso(hc_path)
+ICASSO_hc_test = prepare_icasso(hc_test_path)
+ICASSO_hc_retest = prepare_icasso(hc_retest_path)
 ICASSO_mdd = prepare_icasso(mdd_path)
+ICASSO_mdd_test = prepare_icasso(mdd_test_path)
+ICASSO_mdd_retest = prepare_icasso(mdd_retest_path)
 ICASSO_gad = prepare_icasso(gad_path)
 ICASSO_ptsd = prepare_icasso(ptsd_path)
 ICASSO_tnp = prepare_icasso(tnp_path)
 ICASSO_disorders = prepare_icasso(disorders_path)
+ICASSO_noHC = prepare_icasso(noHC_path)
+ICASSO_noMDD = prepare_icasso(noMDD_path)
+ICASSO_noTNP = prepare_icasso(noTNP_path)
+ICASSO_noPTSD = prepare_icasso(noPTSD_path)
+ICASSO_noGAD = prepare_icasso(noGAD_path)
+ICASSO_test = prepare_icasso(test_path)
+ICASSO_retest = prepare_icasso(retest_path)
+ICASSO_resp_test = prepare_icasso(resp_test_path)
+ICASSO_resp_retest = prepare_icasso(resp_retest_path)
+ICASSO_nonresp_test = prepare_icasso(nonresp_test_path)
+ICASSO_nonresp_retest = prepare_icasso(nonresp_retest_path)
 
-df_cor <- function(df_1, df_2, Factor, max_components_1, max_components_2, estimate_threshold, stringent_alpha = TRUE,Projection = FALSE){
+#df_2 = pro_hc_retest
+#df_1 = pro_hc_test
+df_cor <- function(df_1, df_2, Factor1, Factor2, max_components_1, max_components_2, estimate_threshold,
+                   stringent_alpha = TRUE,Projection = FALSE, plot = TRUE, cor_method = "pearson"){
   # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
   # A Function to find the correlation between two sources
   # Returns a matrix of spearman's rho values
@@ -198,6 +243,10 @@ df_cor <- function(df_1, df_2, Factor, max_components_1, max_components_2, estim
   if (is.na(max_components_1)){
     max_components_1 = nrow(df_1)
     max_components_2 = nrow(df_2)
+    if (Projection){
+      max_components_1 = ncol(df_1)-8
+      max_components_2 = ncol(df_2)-8
+    }
   }
   
   
@@ -223,7 +272,11 @@ df_cor <- function(df_1, df_2, Factor, max_components_1, max_components_2, estim
   
   Cor_mat = matrix(0,nrow = max_components_1,ncol = max_components_2)
   dimnames(Cor_mat) = list(paste0("IC",1:max_components_1), paste0("IC",1:max_components_2))
-  names(dimnames(Cor_mat)) = c("All",Factor)
+  names(dimnames(Cor_mat)) = c(Factor1,Factor2)
+  
+  p_mat = matrix(0,nrow = max_components_1,ncol = max_components_2)
+  dimnames(p_mat) = list(paste0("IC",1:max_components_1), paste0("IC",1:max_components_2))
+  names(dimnames(p_mat)) = c(Factor1,Factor2)
   
   for (i in 1:max_components_1){
     threshold = 0.05
@@ -231,12 +284,19 @@ df_cor <- function(df_1, df_2, Factor, max_components_1, max_components_2, estim
       threshold = threshold / (max_components_2 * max_components_1)
     }
     
-    estimates = sapply(1:max_components_2, function(x) cor.test(as.numeric(df_1[i,]),as.numeric(df_2[x,]))$estimate)
-    p_values = sapply(1:max_components_2, function(x) cor.test(as.numeric(df_1[i,]),as.numeric(df_2[x,]))$p.value)
-    estimates[p_values>threshold | abs(estimates)<estimate_threshold] = 0
+    estimates = sapply(1:max_components_2, function(x) cor.test(as.numeric(df_1[i,]),as.numeric(df_2[x,]), method = cor_method)$estimate)
+    p_values = sapply(1:max_components_2, function(x) cor.test(as.numeric(df_1[i,]),as.numeric(df_2[x,]), method = cor_method)$p.value)
+    #estimates[p_values>threshold | abs(estimates)<estimate_threshold] = 0
+    p_mat[i,] = p_values
     Cor_mat[i,] = estimates
   }
-  return(Cor_mat)
+  #Cor_mat[p_values>threshold |abs(Cor_mat)<estimate_threshold] =0
+  if(plot){
+    
+    corrplot::corrplot(Cor_mat, method = "number", p.mat=p_mat, sig.level = threshold,
+                       insig = "blank", title = paste0("\n\nCorrelations Between ",Factor1," and ",Factor2))
+  }
+  return(list(correlation = Cor_mat, pvalue = p_mat))
 }
 
 
@@ -745,6 +805,175 @@ show_knn = function(data_frame, DV, IVs, perc, control = "HC", plot.ROC = TRUE, 
 }
 
 
+
+find_threshold_old = function(or_data_1, or_data_2, n_shuffle, cor_method = "spearman"){
+  
+  # A function to find the correlation threshold of two data frames
+  # both data frames should have the same number of columns
+  shuffled_data_1 = array(data = 0, dim = c(n_shuffle,nrow(or_data_1),ncol(or_data_1)))
+  shuffled_data_2 = array(data = 0, dim = c(n_shuffle,nrow(or_data_2),ncol(or_data_2)))
+  
+  
+  for (perm in 1:n_shuffle){
+    # shuffle the two data frames
+    data_copy_1 = sample(or_data_1)
+    data_copy_2 = sample(or_data_2)
+    
+    # add the shuffled data frames to the shuffled_data_1 and shuffled_data_2
+    shuffled_data_1[perm,,] = as.matrix(data_copy_1)
+    shuffled_data_2[perm,,] = as.matrix(data_copy_2)
+  }
+  
+  
+  # find the cross-correlation for each of the rows of the two data frames
+  # I should have a final data frame with a sahpe of (n_shuffle, or_data_1.shape[0], or_data_2.shape[0])
+  cor_matrix = array(c(0), dim = c(n_shuffle, nrow(or_data_1), nrow(or_data_2)))
+  
+  
+  for (m in 1:ncol(shuffled_data_1)){
+    for (n in 1:ncol(shuffled_data_2)){
+      cor_r = sapply(1:n_shuffle, function(shuf) cor.test(shuffled_data_1[shuf, m, ],shuffled_data_2[shuf, n, ],method = cor_method)$estimate)
+      cor_matrix[, m, n] = abs(cor_r)
+    }
+  }
+  
+  return (cor_matrix)
+  
+}
+
+
+find_threshold = function(or_data_1, or_data_2, method = "spearman", n_shuffle = 1000, threshold_choice = 0.999,
+                          Comparison = "Sources", G1, G2, plot=TRUE, simulate = FALSE){
+  # find the threshold of correlation for two data frames
+  # This is done by shuffling the data a number of times
+  # The correlation values that result represent all the random correlations possible
+  # so, we are sure that anything within the range of these values
+  # is not acceptable. Any value above the threshold can be considered as good
+  
+  # remove non-numeric columns
+  or_data_1 = or_data_1[,sapply(or_data_1,is.numeric)]
+  or_data_2 = or_data_2[,sapply(or_data_2,is.numeric)]
+  
+  
+  # shuffle the data frames
+  local_shuffle = function(or_data_1, or_data_2, method, n_shuffle){
+    # A function to create data shuffles from original data
+    # Create two lists from the original data frames
+    data_1 = abind(c(or_data_1))
+    data_2 = abind(c(or_data_2))
+    
+    # normalize  
+    data_1 = (data_1-mean(data_1))/sd(data_1)
+    data_2 = (data_2-mean(data_2))/sd(data_2)
+    
+    # create a vector containing the max values of each correlation
+    threshold_vector = c()
+    for (i in 1:n_shuffle){
+      shuffled_d1 = data.frame(matrix(sample(data_1), ncol = ncol(or_data_1)))
+      shuffled_d2 = data.frame(matrix(sample(data_2), ncol = ncol(or_data_2)))
+      
+      colnames(shuffled_d1) = colnames(or_data_1)
+      colnames(shuffled_d2) = colnames(or_data_2)
+      
+      cor_matrix = abs(corr.test(shuffled_d1,shuffled_d2 , method = method)$r)
+      local_threshold = quantile(cor_matrix,0.99)#max(cor_matrix)
+      threshold_vector = append(threshold_vector,local_threshold)
+    }
+    return (threshold_vector)
+  }
+  
+  
+  # the simulate function
+  local_simulate = function(or_data_1, or_data_2, method = "spearman", n_shuffle = 100){
+    # find sd and mean for each of the data frames
+    sd_1 = sd(abind(c(or_data_1)))
+    sd_2 = sd(abind(c(or_data_2)))
+    mean_1 = mean(abind(c(or_data_1)))
+    mean_2 = mean(abind(c(or_data_2)))
+    
+    # create a vector for thresholds
+    threshold_vector = c()
+    for (i in 1:n_shuffle){
+      # create the simulated data
+      sim_data_1 = data.frame(sapply(colnames(or_data_1)[1], function(icol)
+        rnorm(nrow(or_data_1), mean = mean_1, sd = sd_1)))
+      
+      sim_data_2 = data.frame(sapply(colnames(or_data_2)[1], function(icol)
+        rnorm(nrow(or_data_2), mean = mean_2,sd = sd_2)))
+      
+      
+      cor_matrix = abs(corr.test(sim_data_1,sim_data_2 , method = method)$r)
+      local_threshold = max(cor_matrix)#quantile(cor_matrix,0.95)
+      threshold_vector = append(threshold_vector,local_threshold)
+    }
+    return(threshold_vector)
+  }
+  
+  
+  # run the local simulator/shuffler function. Change the cores argument to the number of cores in the machine
+  if (simulate){
+    registerDoParallel(cores=8)
+    threshold_list = foreach(i = 1:8) %dopar% local_simulate (
+      or_data_1 = or_data_1, or_data_2 = or_data_2, method = method, n_shuffle = ceiling(n_shuffle / 8))
+  } else{
+    registerDoParallel(cores=8)
+    threshold_list = foreach(i = 1:8) %dopar% local_shuffle (
+      or_data_1 = or_data_1, or_data_2 = or_data_2, method = method, n_shuffle = ceiling(n_shuffle / 8)
+    )
+  }
+  
+  # The result is 8 threshold lists (because of parallelization). Now we combine them
+  thresholds = unlist(threshold_list)
+  cor_threshold = quantile(thresholds,threshold_choice)
+  standard_thresholds = sapply(c(0.1,0.5,0.9,0.95,0.99), function(x) quantile(thresholds,x))
+  # norm_data_1 = (or_data_1-mean(data_1))/sd(data_1)
+  # norm_data_2 = (or_data_2-mean(data_2))/sd(data_2)
+  
+  cor_matrix = abs(corr.test(or_data_1,or_data_2 , method = method)$r)
+  
+  
+  cor_list_final_1 = cor_matrix
+  cor_list_final_1[cor_list_final_1<cor_threshold] = 0
+  
+  # cor_list_2 is the list passing twice as the threshold
+  cor_list_final_2 = cor_matrix
+  cor_list_final_2[cor_list_final_2<(2*cor_threshold)] = 0
+  
+  if (plot){
+    C_palette = colorRampPalette(c("#FFFFFF","#0087BD","#C33E3B"))(200)
+    # anything above 0 will have red color "#C33E3B", anything above two thresholds will have blue color "#0087BD"
+    
+    first_position = round(200*min(cor_matrix)/max(cor_matrix),0)
+    threshold_position = round(200*(cor_threshold-min(cor_matrix))/(max(cor_matrix)-min(cor_matrix)),0)
+    if (threshold_position<0){
+      threshold_position = 0}
+    threshold_two_position = round(200*(2*(cor_threshold)-min(cor_matrix))/(max(cor_matrix)-min(cor_matrix)),0)
+    if (threshold_two_position<0){
+      threshold_two_position =0
+    }else if (threshold_two_position>200){
+      threshold_two_position = 200
+    }
+    C_palette[threshold_position:threshold_two_position] = "#C33E5B"
+    C_palette[1:threshold_position] = "#FFFFFF"
+    C_palette[threshold_two_position:200] = "#0085BD"
+    # This happens if the 2*threshold is higher than the max
+    if (threshold_two_position == 200){
+      C_palette[threshold_two_position:200] = C_palette[199]
+    }
+    C_palette[199] = gsub("5","4",C_palette[200])
+    C_palette[200] = gsub("4","8",C_palette[199])
+    
+    corrplot(cor_matrix, col = C_palette,
+             title = paste0("\n\nCorrelation of ",Comparison," - ",G1," with ",G2," -",
+                            if (simulate){"Simulation"}else{"Shuffling"}," Threshold = ",
+                            round(cor_threshold,3), " (", threshold_choice*100,"th centile) - ",
+                            n_shuffle," Iterations", "\n Red = Passing the Threshold ... Blue = passing 2*Threshold"),
+             method = c("n"),cl.lim = c(min(cor_matrix),max(cor_matrix)))
+  }
+  return(list(cor_list_threshold = cor_list_final_1,cor_list_twice = cor_list_final_2, cor_list = cor_matrix, threshold = cor_threshold, standard_thresholds = standard_thresholds))
+}
+
+
 # Correlations Between Sources of Different Data Decompositions ---------------
 
 library(reshape2)
@@ -762,13 +991,13 @@ tnp_sources = ICASSO_tnp$sources
 
 # Create the matrix of correlations' estimates
 est_threshold = 0.3
-AllFAST_sources_Cor = df_cor(ref_sources, fast_sources, "All_Fast", 10,10,est_threshold,Projection = FALSE)
-AllFASTSK_sources_Cor = df_cor(ref_sources, fastsk_sources, "All_Fast_SK", 10,10,est_threshold,Projection = FALSE)
-HC_sources_Cor = df_cor(ref_sources, hc_sources, "HC", 10,10,est_threshold,Projection = FALSE)
-GAD_sources_Cor = df_cor(ref_sources, gad_sources, "GAD", 10,10,est_threshold,Projection = FALSE)
-MDD_sources_Cor = df_cor(ref_sources, mdd_sources, "MDD", 10,10,est_threshold,Projection = FALSE)
-PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, "PTSD", 10,10,est_threshold,Projection = FALSE)
-TNP_sources_Cor = df_cor(ref_sources, tnp_sources, "TNP", 10,10,est_threshold,Projection = FALSE)
+AllFAST_sources_Cor = df_cor(ref_sources, fast_sources, Factor1 = "All",Factor2 = "All_Fast", 10,10,est_threshold,Projection = FALSE)$correlation
+AllFASTSK_sources_Cor = df_cor(ref_sources, fastsk_sources, Factor1 = "All",Factor2 =  "All_Fast_SK", 10,10,est_threshold,Projection = FALSE)$correlation
+HC_sources_Cor = df_cor(ref_sources, hc_sources, Factor1 = "All",Factor2 = "HC", 10,10,est_threshold,Projection = FALSE)$correlation
+GAD_sources_Cor = df_cor(ref_sources, gad_sources, Factor1 = "All",Factor2 =  "GAD", 10,10,est_threshold,Projection = FALSE)$correlation
+MDD_sources_Cor = df_cor(ref_sources, mdd_sources, Factor1 = "All",Factor2 =  "MDD", 10,10,est_threshold,Projection = FALSE)$correlation
+PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = FALSE)$correlation
+TNP_sources_Cor = df_cor(ref_sources, tnp_sources, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = FALSE)$correlation
 
 
 # Find the ICs in the each sources df that has the highest correlation
@@ -920,13 +1149,13 @@ tnp_projections = ICASSO_tnp$projections
 
 # Create the matrix of correlations' estimates
 est_threshold = 0.3
-AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, "All_Fast", 10,10,est_threshold,Projection = TRUE)
-AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)
-HC_projections_Cor = df_cor(ref_projections, hc_projections, "HC", 10,10,est_threshold,Projection = TRUE)
-GAD_projections_Cor = df_cor(ref_projections, gad_projections, "GAD", 10,10,est_threshold,Projection = TRUE)
-MDD_projections_Cor = df_cor(ref_projections, mdd_projections, "MDD", 10,10,est_threshold,Projection = TRUE)
-PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, "PTSD", 10,10,est_threshold,Projection = TRUE)
-TNP_projections_Cor = df_cor(ref_projections, tnp_projections, "TNP", 10,10,est_threshold,Projection = TRUE)
+AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, Factor1 = "All",Factor2 =  "All_Fast", 10,10,est_threshold,Projection = TRUE)$correlation
+AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, Factor1 = "All",Factor2 =  "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)$correlation
+HC_projections_Cor = df_cor(ref_projections, hc_projections, Factor1 = "All",Factor2 =  "HC", 10,10,est_threshold,Projection = TRUE)$correlation
+GAD_projections_Cor = df_cor(ref_projections, gad_projections, Factor1 = "All",Factor2 =  "GAD", 10,10,est_threshold,Projection = TRUE)$correlation
+MDD_projections_Cor = df_cor(ref_projections, mdd_projections, Factor1 = "All",Factor2 =  "MDD", 10,10,est_threshold,Projection = TRUE)$correlation
+PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = TRUE)$correlation
+TNP_projections_Cor = df_cor(ref_projections, tnp_projections, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = TRUE)$correlation
 
 
 # Find the ICs in the each projections df that has the highest correlation
@@ -1056,10 +1285,10 @@ ref_projections = ICASSO_all$projections
 fast_projections = ICASSO_all_fast$projections
 fastsk_projections = ICASSO_all_fastsk$projections
 
-df_cor(fastsk_projections, fastsk_projections, "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)
+df_cor(fastsk_projections, fastsk_projections, Factor1 = "All",Factor2 =  "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)$correlation
 
-AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, "All_Fast", 10,10,est_threshold,Projection = TRUE)
-AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)
+AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, Factor1 = "All",Factor2 =  "All_Fast", 10,10,est_threshold,Projection = TRUE)$correlation
+AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, Factor1 = "All",Factor2 =  "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)$correlation
 
 AllFAST_projections_ICs = simplify_mat(AllFAST_projections_Cor)
 AllFASTSK_projections_ICs = simplify_mat(AllFASTSK_projections_Cor)
@@ -1083,13 +1312,13 @@ tnp_projections = ICASSO_tnp$projections
 
 # Create the matrix of correlations' estimates
 est_threshold = 0.3
-AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, "All_Fast", 10,10,est_threshold,Projection = TRUE)
-AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)
-HC_projections_Cor = df_cor(ref_projections, hc_projections, "HC", 10,10,est_threshold,Projection = TRUE)
-GAD_projections_Cor = df_cor(ref_projections, gad_projections, "GAD", 10,10,est_threshold,Projection = TRUE)
-MDD_projections_Cor = df_cor(ref_projections, mdd_projections, "MDD", 10,10,est_threshold,Projection = TRUE)
-PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, "PTSD", 10,10,est_threshold,Projection = TRUE)
-TNP_projections_Cor = df_cor(ref_projections, tnp_projections, "TNP", 10,10,est_threshold,Projection = TRUE)
+AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, Factor1 = "All",Factor2 =  "All_Fast", 10,10,est_threshold,Projection = TRUE)$correlation
+AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, Factor1 = "All",Factor2 =  "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)$correlation
+HC_projections_Cor = df_cor(ref_projections, hc_projections, Factor1 = "All",Factor2 =  "HC", 10,10,est_threshold,Projection = TRUE)$correlation
+GAD_projections_Cor = df_cor(ref_projections, gad_projections, Factor1 = "All",Factor2 = "GAD", 10,10,est_threshold,Projection = TRUE)$correlation
+MDD_projections_Cor = df_cor(ref_projections, mdd_projections, Factor1 = "All",Factor2 = "MDD", 10,10,est_threshold,Projection = TRUE)$correlation
+PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = TRUE)$correlation
+TNP_projections_Cor = df_cor(ref_projections, tnp_projections, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = TRUE)$correlation
 
 
 # Find the ICs in the each projections df that has the highest correlation
@@ -1660,18 +1889,18 @@ tnp_sources = ICASSO_tnp$sources
 
 # Create the matrix of correlations' estimates
 est_threshold = 0.3
-HC_sources_Cor = df_cor(ref_sources, hc_sources, "HC", 10,10,est_threshold,Projection = FALSE)
-GAD_sources_Cor = df_cor(ref_sources, gad_sources, "GAD", 10,10,est_threshold,Projection = FALSE)
-MDD_sources_Cor = df_cor(ref_sources, mdd_sources, "MDD", 10,10,est_threshold,Projection = FALSE)
-PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, "PTSD", 10,10,est_threshold,Projection = FALSE)
-TNP_sources_Cor = df_cor(ref_sources, tnp_sources, "TNP", 10,10,est_threshold,Projection = FALSE)
+HC_sources_Cor = df_cor(ref_sources, hc_sources, Factor1 = "All",Factor2 =  "HC", 10,10,est_threshold,Projection = FALSE)$correlation
+GAD_sources_Cor = df_cor(ref_sources, gad_sources, Factor1 = "All",Factor2 =  "GAD", 10,10,est_threshold,Projection = FALSE)$correlation
+MDD_sources_Cor = df_cor(ref_sources, mdd_sources, Factor1 = "All",Factor2 =  "MDD", 10,10,est_threshold,Projection = FALSE)$correlation
+PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = FALSE)$correlation
+TNP_sources_Cor = df_cor(ref_sources, tnp_sources, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = FALSE)$correlation
 
 
-HC_projections_Cor = df_cor(ref_projections, hc_projections, "HC", 10,10,est_threshold,Projection = TRUE)
-GAD_projections_Cor = df_cor(ref_projections, gad_projections, "GAD", 10,10,est_threshold,Projection = TRUE)
-MDD_projections_Cor = df_cor(ref_projections, mdd_projections, "MDD", 10,10,est_threshold,Projection = TRUE)
-PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, "PTSD", 10,10,est_threshold,Projection = TRUE)
-TNP_projections_Cor = df_cor(ref_projections, tnp_projections, "TNP", 10,10,est_threshold,Projection = TRUE)
+HC_projections_Cor = df_cor(ref_projections, hc_projections, Factor1 = "All",Factor2 =  "HC", 10,10,est_threshold,Projection = TRUE)$correlation
+GAD_projections_Cor = df_cor(ref_projections, gad_projections, Factor1 = "All",Factor2 =  "GAD", 10,10,est_threshold,Projection = TRUE)$correlation
+MDD_projections_Cor = df_cor(ref_projections, mdd_projections, Factor1 = "All",Factor2 =  "MDD", 10,10,est_threshold,Projection = TRUE)$correlation
+PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = TRUE)$correlation
+TNP_projections_Cor = df_cor(ref_projections, tnp_projections, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = TRUE)$correlation
 
 HC_sources_ICs = simplify_mat(HC_sources_Cor)
 GAD_sources_ICs = simplify_mat(GAD_sources_Cor)
@@ -1713,7 +1942,18 @@ ggplot(data = All_ICs[All_ICs$Type == "Sources",], mapping = aes(x = 1,y= Type))
   scale_y_discrete("IC")+
   scale_x_discrete("Diagnosis")+
   theme(axis.text.y=element_blank(),axis.text.x=element_blank(), axis.ticks.y=element_blank())+
-  ggtitle("ICs with Most Correlations from the Separate-Group Decomposition", subtitle = "All Correlations are with a p-value of <0.0005 and Spearman rho >0.3")
+  ggtitle("ICs with Most Correlations from the Separate-Group Decomposition for Sources", subtitle = "All Correlations are with a p-value of <0.0005 and Spearman rho >0.3")
+
+
+ggplot(data = All_ICs[All_ICs$Type == "Projections",], mapping = aes(x = 1,y= Type))+
+  geom_text(aes(y=1,label = IC))+
+  geom_text(aes(y=0,label = Cor))+
+  facet_grid(IC_all~Diagnosis)+
+  TypicalTheme+
+  scale_y_discrete("IC")+
+  scale_x_discrete("Diagnosis")+
+  theme(axis.text.y=element_blank(),axis.text.x=element_blank(), axis.ticks.y=element_blank())+
+  ggtitle("ICs with Most Correlations from the Separate-Group Decomposition for Projections", subtitle = "All Correlations are with a p-value of <0.0005 and Spearman rho >0.3")
 
 
 # Choose Questions --------------------------------------------------------
@@ -1730,11 +1970,11 @@ tnp_sources = ICASSO_tnp$sources
 
 # Create the matrix of correlations' estimates
 est_threshold = 0.3
-HC_sources_Cor = df_cor(ref_sources, hc_sources, "HC", 10,10,est_threshold,Projection = FALSE)
-GAD_sources_Cor = df_cor(ref_sources, gad_sources, "GAD", 10,10,est_threshold,Projection = FALSE)
-MDD_sources_Cor = df_cor(ref_sources, mdd_sources, "MDD", 10,10,est_threshold,Projection = FALSE)
-PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, "PTSD", 10,10,est_threshold,Projection = FALSE)
-TNP_sources_Cor = df_cor(ref_sources, tnp_sources, "TNP", 10,10,est_threshold,Projection = FALSE)
+HC_sources_Cor = df_cor(ref_sources, hc_sources, Factor1 = "All",Factor2 =  "HC", 10,10,est_threshold,Projection = FALSE)$correlation
+GAD_sources_Cor = df_cor(ref_sources, gad_sources, Factor1 = "All",Factor2 =  "GAD", 10,10,est_threshold,Projection = FALSE)$correlation
+MDD_sources_Cor = df_cor(ref_sources, mdd_sources, Factor1 = "All",Factor2 =  "MDD", 10,10,est_threshold,Projection = FALSE)$correlation
+PTSD_sources_Cor = df_cor(ref_sources, ptsd_sources, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = FALSE)$correlation
+TNP_sources_Cor = df_cor(ref_sources, tnp_sources, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = FALSE)$correlation
 
 
 HC_sources_ICs = simplify_mat(HC_sources_Cor)
@@ -1820,18 +2060,19 @@ for (IC in all_sources_melted$IC_group){
   all_sources_melted$Sources_high[all_sources_melted$IC_group == IC & abs(all_sources_melted$Sources_group) < qq] = NA
 }
 df_plot = all_sources_melted[(all_sources_melted$Group!="All" & all_sources_melted$Group!="All_fast" & all_sources_melted$Group!="All_fastsk"),]
-df_plot$IC_group = factor(df_plot$IC_group, levels = paste0("IC",1:10))
+df_plot$Group = factor(df_plot$Group, levels = c("GAD","HC","MDD","PTSD","TNP"))
 
 ggplot(df_plot, aes(x=Question, y= Sources_group))+
   geom_bar(stat = "identity")+
-  facet_grid(Group~IC_all, scales =  "free")+
-  geom_text(aes(x=50,y=5, label = IC_group_plot))
+  facet_grid(IC_all~Group, scales =  "free")+
+  geom_text(aes(x=50,y=5, label = IC_group_plot))+
+  geom_text(aes(x=50,y=-5, label = Cor_plot))
       
 
 
-
-
-
+# Questions with highest loading 
+all_sources = all_sources_melted[(all_sources_melted$Group=="All"),]
+all_sources 
 
 # Logistic Regression for Diagnosis ----------------------------------
 # read projections data
@@ -2112,13 +2353,13 @@ tnp_projections = ICASSO_tnp$projections
 
 # Create the matrix of correlations' estimates
 est_threshold = 0.3
-AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, "All_Fast", 10,10,est_threshold,Projection = TRUE)
-AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)
-HC_projections_Cor = df_cor(ref_projections, hc_projections, "HC", 10,10,est_threshold,Projection = TRUE)
-GAD_projections_Cor = df_cor(ref_projections, gad_projections, "GAD", 10,10,est_threshold,Projection = TRUE)
-MDD_projections_Cor = df_cor(ref_projections, mdd_projections, "MDD", 10,10,est_threshold,Projection = TRUE)
-PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, "PTSD", 10,10,est_threshold,Projection = TRUE)
-TNP_projections_Cor = df_cor(ref_projections, tnp_projections, "TNP", 10,10,est_threshold,Projection = TRUE)
+AllFAST_projections_Cor = df_cor(ref_projections, fast_projections, Factor1 = "All",Factor2 = "All_Fast", 10,10,est_threshold,Projection = TRUE)$correlation
+AllFASTSK_projections_Cor = df_cor(ref_projections, fastsk_projections, Factor1 = "All",Factor2 =  "All_Fast_SK", 10,10,est_threshold,Projection = TRUE)$correlation
+HC_projections_Cor = df_cor(ref_projections, hc_projections, Factor1 = "All",Factor2 = "HC", 10,10,est_threshold,Projection = TRUE)$correlation
+GAD_projections_Cor = df_cor(ref_projections, gad_projections, Factor1 = "All",Factor2 =  "GAD", 10,10,est_threshold,Projection = TRUE)$correlation
+MDD_projections_Cor = df_cor(ref_projections, mdd_projections, Factor1 = "All",Factor2 =  "MDD", 10,10,est_threshold,Projection = TRUE)$correlation
+PTSD_projections_Cor = df_cor(ref_projections, ptsd_projections, Factor1 = "All",Factor2 =  "PTSD", 10,10,est_threshold,Projection = TRUE)$correlation
+TNP_projections_Cor = df_cor(ref_projections, tnp_projections, Factor1 = "All",Factor2 =  "TNP", 10,10,est_threshold,Projection = TRUE)$correlation
 
 
 # Find the ICs in the each projections df that has the highest correlation
@@ -2206,175 +2447,6 @@ for(i in 1:12){
 }
 
 sources_melted_all$q_num = q_num
-
-
-# Experiments ------------------------------------------------------------
-find_scale = function(scale_list,Q_num){
-  Question = NA
-  for (item in names(scale_list)){
-    if (Q_num %in% scale_list[[item]]){
-      Question = item
-    }
-  }
-  return(Question)
-}
-
-subscales = sapply(1:100, function(x) find_scale(TPQQuestions[1:12],x))
-scales = sapply(1:100, function(x) find_scale(TPQQuestions[13:15],x))
-sc_df = data.frame(scales = as.factor(scales), subscales = as.factor(subscales), Questions = factor(paste0("Q",1:100),levels = paste0("Q",1:100)))
-
-all_sources[,c("scale","subscale","Question")] = sc_df
-fast_sources[,c("scale","subscale","Question")] = sc_df
-fastsk_sources[,c("scale","subscale","Question")] = sc_df
-hc_sources[,c("scale","subscale","Question")] = sc_df
-gad_sources[,c("scale","subscale","Question")] = sc_df
-mdd_sources[,c("scale","subscale","Question")] = sc_df
-ptsd_sources[,c("scale","subscale","Question")] = sc_df
-tnp_sources[,c("scale","subscale","Question")] = sc_df
-
-
-
-
-
-
-### ### ###
-### ### ###
-#   SVM   #
-### ### ###
-### ### ###
-library(e1071)
-library(ggplot2)
-library(sf)
-library(pROC)
-library(randomForest)
-library(caret)
-par(pty = "s") # to remove the side panels when plotting the ROC curve
-
-pro_all = ICASSO_all$projections[,c(9:18,2)]
-pro_fast = ICASSO_all_fast$projections[,c(9:18,2)]
-pro_fastsk = ICASSO_all_fastsk$projections[,c(9:18,2)]
-
-#pro_fast = pro_fast[pro_fast$Diagnosis %in% c("HC","MDD"), colnames(pro_fast) %in% c("Diagnosis","IC1","IC2")]
-pro_all = pro_all[pro_all$Diagnosis %in% c("HC","MDD"),]
-pro_fast = pro_fast[pro_fast$Diagnosis %in% c("HC","MDD"),]
-pro_fastsk = pro_fastsk[pro_fastsk$Diagnosis %in% c("HC","MDD"),]
-
-pro_all$Diagnosis = factor(pro_all$Diagnosis)
-pro_fast$Diagnosis = factor(pro_fast$Diagnosis)
-pro_fastsk$Diagnosis = factor(pro_fastsk$Diagnosis)
-
-
-
-
-
-svm_info_lin = show_svm(data_frame = pro_fast, k_type = "linear",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
-svm_info_rad = show_svm(data_frame = pro_fast, k_type = "radial",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
-svm_info_pol = show_svm(data_frame = pro_fast, k_type = "polynomial",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
-svm_info_sig = show_svm(data_frame = pro_fast, k_type = "sigmoid",DV = "Diagnosis",IVs = paste0("IC",1:10), k.fold = 10)
-
-
-svm_lin_auc = mean(svm_info_lin$cv[,2])
-svm_rad_auc = mean(svm_info_rad$cv[,2])
-svm_pol_auc = mean(svm_info_pol$cv[,2])
-svm_sig_auc = mean(svm_info_sig$cv[,2])
-
-
-
-# Can be deleted later
-# This is a comparison with python's SVM
-# Seems the answers make sense
-train_test_split = import("sklearn")$model_selection$train_test_split
-py_svm= import("sklearn")$svm
-np = import("numpy")
-pd = import("pandas")
-
-
-show_py_svm = function(data_frame, perc = 0.8, svm_method = "linear"){
-  # create a test and train data sets
-  train_inds = sample(1:nrow(data_frame), size = perc*nrow(data_frame))
-  train = data_frame[train_inds,]
-  test = data_frame[-train_inds,]
-  
-  svm_model = py_svm$SVC(kernel=svm_method, C=1, decision_function_shape='ovo')$fit(train[1:10], train[[11]])
-  res_table = table(svm_model$predict(test[1:10]),test$Diagnosis)
-  Accuracy = svm_model$score(test[1:10], test[[11]])
-  
-  return (list(res_table,Accuracy))
-}
-show_py_svm(data_frame = pro_fast, perc = 0.8, svm_method = "linear") #"rbf","poly","sigmoid"
-# End delete
-# now we do cloninger
-tpq = ICASSO_all$tpq
-
-or_tpq = as.data.frame(readxl::read_xlsx("/home/asawalma/Insync/abdulrahman.sawalma@gmail.com/Google Drive/PhD/Data/Palestine/TPQ_DataAndAnalysis/TPQ_Analysis_All_25.11.2020_modified.xlsx", na = "NA"))[c("Final ID", "Diagnosis", paste0("QO",1:100))]
-TPQQuestions = list(NS1=c(2, 4, 9, 11, 40, 43, 85, 93, 96),
-                    NS2=c(30, 46, 48, 50, 55, 56, 81, 99),
-                    NS3=c(32, 66, 70, 72, 76, 78, 87),
-                    NS4=c(13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
-                    HA1=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98),
-                    HA2=c(18, 19, 23, 26, 29, 47, 51),
-                    HA3=c(33, 37, 38, 42, 44, 89, 100),
-                    HA4=c(49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
-                    RD1=c(27, 31, 34, 83, 94),
-                    RD2=c(39, 41, 45, 52, 53, 77, 79, 92, 97),
-                    RD3=c(3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90),
-                    RD4=c(17, 20, 25, 36, 58),
-                    NS=c(2, 4, 9, 11, 40, 43, 85, 93, 96, 30, 46, 48, 50, 55, 56, 81, 99, 32, 66, 70, 72, 76, 78, 87, 13, 16, 21, 22, 24, 28, 35, 60, 62, 65),
-                    HA=c(1, 5, 8, 10, 14, 82, 84, 91, 95, 98, 18, 19, 23, 26, 29, 47, 51, 33, 37, 38, 42, 44, 89, 100, 49, 54, 57, 59, 63, 68, 69, 73, 75, 80),
-                    RD=c(27, 31, 34, 83, 94, 39, 41, 45, 52, 53, 77, 79, 92, 97, 3, 6, 7, 12, 15, 64, 67, 74, 86, 88, 90, 17, 20, 25, 36, 58))
-
-
-
-or_tpq = or_tpq[or_tpq$`Final ID` %in% tpq$ID,]
-or_tpq[,paste0("QO",1:100)] = ifelse(or_tpq[,paste0("QO",1:100)] == "T", 1, ifelse(or_tpq[,paste0("QO",1:100)] == "F",0,NA))
-or_tpq = or_tpq[or_tpq$Diagnosis %in% c("MDD","HC"),]
-or_tpq$Diagnosis = factor(or_tpq$Diagnosis)
-
-for (item in names(TPQQuestions)){
-  question_labels = paste0("QO",TPQQuestions[[item]])
-  or_tpq[[item]] = apply(or_tpq[,question_labels], 1, sum, na.rm = TRUE)
-}
-
-
-svm_cloninger_subscales_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "linear", k.fold = 10)
-svm_cloninger_subscales_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "radial", k.fold = 10)
-svm_cloninger_subscales_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c(paste0("HA",1:4),paste0("NS",1:4),paste0("RD",1:4)),k_type = "polynomial", k.fold = 10)
-
-svm_cloninger_scales_lin = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "linear", k.fold = 10)
-svm_cloninger_scales_rad = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "radial", k.fold = 10)
-svm_cloninger_scales_pol = show_svm(data = or_tpq,DV = "Diagnosis",IVs = c("HA","NS","RD"),k_type = "polynomial", k.fold = 10)
-
-# plot ROC
-test_roc(svm_info_lin$ROC,svm_cloninger_subscales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Subscales",
-         Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
-# plot ROC
-test_roc(svm_info_lin$ROC,svm_cloninger_scales_lin$ROC, name1 = "IC-based", name2 = "Traditional Personality Scales",
-         Subtitle = "For the Ability of SVM Models to Predict the Presence of Depression")
-
-# to plot average roc curve with a data frame: https://cran.r-project.org/web/packages/plotROC/vignettes/examples.html
-
-# CLoninger appears to have very low predictive value for MDD
-
-# SVM for scales and subscales
-
-
-all_source_svm = mean(sapply(1:50, function(x) show_svm(all_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-fast_source_svm = mean(sapply(1:50, function(x) show_svm(fast_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-fastsk_source_svm = mean(sapply(1:50, function(x) show_svm(fastsk_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-hc_source_svm = mean(sapply(1:50, function(x) show_svm(hc_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-gad_source_svm = mean(sapply(1:50, function(x) show_svm(gad_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-mdd_source_svm = mean(sapply(1:50, function(x) show_svm(mdd_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-ptsd_source_svm = mean(sapply(1:50, function(x) show_svm(ptsd_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-tnp_source_svm = mean(sapply(1:50, function(x) show_svm(tnp_sources, DV = "subscale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-
-all_source_svm = mean(sapply(1:50, function(x) show_svm(all_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-fast_source_svm = mean(sapply(1:50, function(x) show_svm(fast_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-fastsk_source_svm = mean(sapply(1:50, function(x) show_svm(fastsk_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-hc_source_svm = mean(sapply(1:50, function(x) show_svm(hc_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-gad_source_svm = mean(sapply(1:50, function(x) show_svm(gad_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-mdd_source_svm = mean(sapply(1:50, function(x) show_svm(mdd_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-ptsd_source_svm = mean(sapply(1:50, function(x) show_svm(ptsd_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
-tnp_source_svm = mean(sapply(1:50, function(x) show_svm(tnp_sources, DV = "scale",IVs = paste0("IC",1:10), k_type = "radial")[[2]]))
 
 
 # KNN -------------------------------------------------------------
@@ -2642,28 +2714,101 @@ test_roc(svm_info_lin$ROC,svm_cloninger_scales_lin$ROC, name1 = "IC-based", name
 
 # Basic TPQ Analysis --------------------------------------------------------
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
-#             Crobnach Alpha                  #
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+# To find c.alpha for ICs, we need to assign questions to each of the ICs
+# Find which IC each question loads most on
+sources_all = ICASSO_all$sources[ICASSO_all$scores>0.85,1:100]
+n_ICs = sum(ICASSO_all$scores>0.85)
+max_source = matrix(rep(apply(abs(sources_all),2,max),n_ICs),nrow = n_ICs, byrow = TRUE)
+IC_questions = as.data.frame(ifelse(max_source == abs(sources_all),1,0))
+colnames(IC_questions) = paste0("Q",1:100)
 
-return_alpha = function(item) {
-  # returns 3 items, the name of the subscale,
-  # c.alpha of males and c.alpha of females
-  
-  questions = paste0("Q", TPQQuestions[[item]])
-  df = TPQ_scores[questions]
-  M_alpha = cronbach(df[TPQ_scores$Gender == "Male", ])$alpha
-  F_alpha = cronbach(df[TPQ_scores$Gender == "Female", ])$alpha
-  return(c( M_alpha, F_alpha))
+# Create a list for each of the ICs and the questions that belong to it
+ICs = ICASSO_all$sources$IC[ICASSO_all$scores>0.85]
+TPQ_IC_Questions = sapply(ICs, function(x) IC="", simplify = FALSE)
+for (IC in ICs){
+  Questions = colnames(IC_questions)[IC_questions[ICs == IC,] == 1]
+  if (length(Questions)>2){
+    TPQ_IC_Questions[[IC]] = Questions
+  } else{
+    TPQ_IC_Questions[[IC]] = NULL
+  }
 }
-c_alpha_values = sapply(names(TPQQuestions), function(x) return_alpha(x))
-c_alpha_df = as.data.frame(t(c_alpha_values))
-colnames(c_alpha_df) = c("Males","Females")
 
+
+#plot the results to show the questions chosen for each of the ICs
+low_q_count = apply(IC_questions,1,sum)<3
+IC_Questions_plot = IC_questions
+IC_Questions_plot$IC = factor(ICs, levels = ICs)
+IC_Questions_plot = reshape2::melt(IC_Questions_plot, id.vars = "IC", value.name = "Value", variable.name="Question")
+
+IC_q_g = ggplot(IC_Questions_plot,aes(y=Question,x=IC,fill = Value))+geom_raster()+
+  scale_fill_gradientn(colors = c("#FFFFFF","#02422f"))+
+  TypicalTheme+
+  theme(axis.text.x = element_text(angle = 90),legend.position = "none")+
+  ggtitle("Chosen Questions for ICs based on Sources",subtitle = "ICs with low Question count are crossed with a red line")+
+  geom_vline(xintercept=which(low_q_count), color = "red")
+
+#Find factors
+factanal <- fa(r=TPQ_scores[,paste0("Q",c(1:60,62:70,72:100))],
+               nfactors = 12, 
+               # covar = FALSE
+               #SMC = TRUE,
+               fm="minres",
+               max.iter=50,
+               rotate="varimax")
+
+loadings = as.data.frame(t(matrix(factanal$loadings, byrow = FALSE, nrow = 98)))
+loadings = sapply(1:ncol(loadings), function(x) ifelse(abs(loadings[,x])==max(abs(loadings[,x])),1,0))
+colnames(loadings) = paste0("Q",c(1:60,62:70,72:100))
+# Assess correspondance between these factors and Cloninger's
+Factors = paste0("F",1:12)
+Factors_list = sapply(Factors, function(x) Factor="", simplify = FALSE)
+for (Factor in Factors){
+  Questions = colnames(loadings)[loadings[Factors == Factor,] == 1]
+  if (length(Questions)>2){
+    Factors_list[[Factor]] = Questions
+  } else{
+    Factors_list[[Factor]] = NULL
+  }
+}
+
+
+
+#plot the results to show the questions chosen for each of the ICs
+low_q_count_factor = apply(loadings,1,sum)<3
+F_Questions_plot = as.data.frame(loadings)
+F_Questions_plot$Factor = factor(Factors, levels = Factors)
+F_Questions_plot = reshape2::melt(F_Questions_plot, id.vars = "Factor", value.name = "Value", variable.name="Question")
+
+factor_q_g = ggplot(F_Questions_plot,aes(y=Question,x=Factor,fill = Value))+geom_raster()+
+  scale_fill_gradientn(colors = c("#FFFFFF","#02422f"))+
+  TypicalTheme+
+  theme(axis.text.x = element_text(angle = 90),legend.position = "none")+
+  ggtitle("Chosen Questions for Factors based on Q. Loading",subtitle = "Factors with low Question count are crossed with a red line")+
+  geom_vline(xintercept=which(low_q_count_factor), color = "red")
+
+
+
+#plot TPQ Question count
+tpq_q_cloninger = as.data.frame(sapply(names(TPQQuestions), function(item) ifelse(1:100 %in% TPQQuestions[[item]],1,0)))
+tpq_q_cloninger = t(tpq_q_cloninger)
+colnames(tpq_q_cloninger) = paste0("Q",1:100)
+low_q_count_factor = apply(tpq_q_cloninger,1,sum)<3
+
+Scale_Questions_plot = as.data.frame(tpq_q_cloninger)
+Scale_Questions_plot$Scale = factor(names(TPQQuestions), levels = names(TPQQuestions))
+Scale_Questions_plot = reshape2::melt(Scale_Questions_plot, id.vars = "Scale", value.name = "Value", variable.name="Question")
+
+TPQ_q_g = ggplot(Scale_Questions_plot,aes(y=Question,x=Scale,fill = Value))+geom_raster()+
+  scale_fill_gradientn(colors = c("#FFFFFF","#02422f"))+
+  TypicalTheme+
+  theme(axis.text.x = element_text(angle = 90),legend.position = "none")+
+  ggtitle("Chosen Questions for Subscales\nAccording to Cloninger")
 
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ## 
-#             Effect of Treatment on Temperaments                  #
+#       Effect of Diagnosis and Treatment on Temperaments          #
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ##
+
 scales = c("NS", "HA", "RD")
 subscales = c(paste0("NS",1:4),paste0("HA",1:4),paste0("RD",1:4))
 all_scales = c("NS",paste0("NS",1:4),"HA",paste0("HA",1:4),"RD",paste0("RD",1:4))
@@ -2718,63 +2863,1035 @@ Means_df$scale_names[seq(from = 1, to = 90, by = 6)] = scale_names
 Means_df$Session = factor(Means_df$Session, levels = c("Test","Retest"))
 
 # plot all
-ggplot(Means_df, aes(x=Session, y=Value, group = Groups, color = Groups))+
+TPQ_TR_g = ggplot(Means_df, aes(x=Session, y=Value, group = Groups, color = Groups))+
   geom_line(position = position_dodge(0.05),size=1)+
   geom_errorbar(aes(ymax = Value+SEM,ymin = Value-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
   geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
   TypicalTheme+
   geom_text(mapping = aes(x=1.5,y=0,label = scale_names), color = "black")+
   scale_color_manual(values = c("#6cBE58","#C33E3B","#4EA3DF"))+
-  ggtitle("Harm Avoidance Comparison According to Response")+
+  ggtitle("TPQ Scales", subtitle = "Comparing MDD Groups by Response")+
   facet_grid(scale~subscale,scale = "free")
 
-
-# I will see the reconstructed data
-IC_length = length(ICASSO_all$reco)
-IC_sums = sapply(1:IC_length, function(x) apply(ICASSO_all$reco[[x]][,9:108],1,sum))
-TPQ_reco = ICASSO_all$reco[[1]][,1:8]
-
-TPQ_reco[paste0("IC",1:IC_length)] = IC_sums
-
-sapply(TPQ_reco$ID, function(id) TPQ_scores$`Initial ID`[TPQ_scores$`Final ID` == id])
-TPQ_reco$`Initial ID` = 
-
-# Create the test-retest data set
-ICA_scores_TR = TPQ_reco[complete.cases(TPQ_reco$`Initial ID`),]
-ICA_scores_TR = ICA_scores_TR[complete.cases(ICA_scores_TR$Response),]
-ICA_scores_TR = MatchDelete(ICA_scores_TR,"Session","Initial ID")
+# Plot everything for all groups
+TPQ_scores_all = TPQ_scores[(complete.cases(TPQ_scores$`Initial ID`) & TPQ_scores$Session=="Test"),]
 
 # Create array for the Test-retest data set(TPQ_scores_TR)
-Means_array = sapply(all_scales, function(x)
-  SMeans(TPQ_scores_TR, DV = x, IVs = c("Session", "Response"),
-         GroupBy = "Response"), simplify = FALSE)
+Means_array_all = sapply(all_scales, function(x)
+  SMeans(TPQ_scores_all, DV = x, IVs = c("Diagnosis"),
+         GroupBy = "Diagnosis"), simplify = FALSE)
 
 # Bind all data frames into one
-Means_df = Means_array[[1]]
-colnames(Means_df) = c("Value","SEM","Count","Session","Response","Groups")
-for (i in 2:length(Means_array)){
-  new_df = Means_array[[i]]
-  colnames(new_df) = c("Value","SEM","Count","Session","Response","Groups")
-  Means_df = rbind(Means_df,new_df)
+Means_df_all= Means_array_all[[1]]
+colnames(Means_df_all) = c("Value","SEM","Count","Diagnosis","Groups")
+for (i in 2:length(Means_array_all)){
+  new_df = Means_array_all[[i]]
+  colnames(new_df) = c("Value","SEM","Count","Diagnosis","Groups")
+  Means_df_all = rbind(Means_df_all,new_df)
 }
 
 # Add scales and subscales columns
-Means_df$subscale = factor(rep(c("Scale",paste("Sub_",1:4)), each = 6))
-Means_df$scale = factor(rep(scales, each = 30))
+Means_df_all$subscale = factor(rep(c("Scale",paste("Sub_",1:4)), each = 5))
+Means_df_all$scale = factor(rep(scales, each = 25))
+Means_df_all$scale_names = ""
+Means_df_all$scale_names[seq(from = 1, to = 75, by = 5)] = scale_names
 
-# Add scale and subscale names
-Means_df$scale_names = ""
-Means_df$scale_names[seq(from = 1, to = 90, by = 6)] = scale_names
-# make session into a factor with levels = "Test"&"Retest"
-Means_df$Session = factor(Means_df$Session, levels = c("Test","Retest"))
+# plot the result
 
-# plot all
-ggplot(Means_df, aes(x=Session, y=Value, group = Groups, color = Groups))+
-  geom_line(position = position_dodge(0.05),size=1)+
+TPQ_all_g = ggplot(Means_df_all, aes(x=Diagnosis, y=Value, group = Groups, fill = Groups))+
+  geom_bar(stat = "identity")+
   geom_errorbar(aes(ymax = Value+SEM,ymin = Value-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
   geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
   TypicalTheme+
-  geom_text(mapping = aes(x=1.5,y=0,label = scale_names), color = "black")+
-  scale_color_manual(values = c("#6cBE58","#C33E3B","#4EA3DF"))+
-  ggtitle("Harm Avoidance Comparison According to Response")+
+  geom_text(mapping = aes(x=3,y=20,label = scale_names), color = "black")+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("TPQ Scales", subtitle = "Comparing Groups by Diagnosis")+
   facet_grid(scale~subscale,scale = "free")
+
+
+
+
+
+
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ## 
+#            Effect of Diagnosis and Treatment on ICs              #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ##
+#projections = ICASSO_all$projections
+#projections$`Initial ID` = TPQ_scores$`Initial ID`[match(projections$ID,TPQ_scores$`Final ID`)]
+#projections = projections[complete.cases(projections$`Initial ID`),]
+#projections_melted = melt(projections, measure.vars = paste0("IC",1:15), variable.name = "IC", value.name = "Projection")
+#All_means_pro = SMeans(projections_melted, DV = "Projection", IVs = c("Diagnosis","IC"), GroupBy = "Diagnosis")
+#All_means_pro$IC = factor(All_means$IC, levels=paste0("IC",1:15))
+
+# sourced_TPQ
+sourced_TPQ = TPQ_scores[,c("Initial ID","Session","Diagnosis","Response", paste0("Q",1:100))]
+for (x in 1:15){
+  mult_matrix = matrix(rep(sources[x,],nrow(sourced_TPQ)), nrow = nrow(sourced_TPQ), byrow = TRUE)
+  sourced_TPQ[paste0("S",x)] =  apply(sourced_TPQ[,5:104]*mult_matrix,1,sum, na.rm= TRUE)
+}
+sourced_melted = melt(sourced_TPQ, measure.vars = paste0("S",1:15), variable.name = "Source", value.name = "Value")
+All_means_s = SMeans(sourced_melted, DV = "Value", IVs = c("Diagnosis","Source"), GroupBy = "Diagnosis")
+All_means_s$Source = factor(All_means_s$Source, levels=paste0("S",1:15))
+
+
+IC_Qs = as.data.frame(sapply(TPQ_IC_Questions, function(item) rowSums(TPQ_scores[,item], na.rm = TRUE)))
+IC_Qs[,c("Initial ID","Session","Diagnosis","Response")] = TPQ_scores[,c("Initial ID","Session","Diagnosis","Response")]
+IC_Qs = IC_Qs[complete.cases(IC_Qs$`Initial ID`),]
+IC_melted = melt(IC_Qs, id.vars = c("Initial ID","Session","Diagnosis","Response"), variable.name = "IC", value.name = "Score")
+All_means = SMeans(IC_melted, DV = "Score", IVs = c("Diagnosis","IC"), GroupBy = "Diagnosis")
+All_means$IC = factor(All_means$IC, levels=names(TPQ_IC_Questions))
+
+IC_TR=IC_Qs[complete.cases(IC_Qs$Response),]
+IC_TR = MatchDelete(IC_TR,"Session",common="Initial ID")
+IC_melted_TR = melt(IC_TR, measure.vars = names(TPQ_IC_Questions), variable.name = "IC", value.name = "Score")
+All_TR_means = SMeans(IC_melted_TR, DV = "Score", IVs = c("Session","Response","IC"), GroupBy = "Response")
+All_TR_means$IC = factor(All_TR_means$IC, levels=names(TPQ_IC_Questions))
+
+IC_all_s = ggplot(All_means_s, aes(x= Diagnosis, y= Value, group = Diagnosis, fill = Diagnosis))+
+  geom_bar(stat = "identity")+geom_errorbar(aes(ymax = Value+SEM,ymin = Value-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("ICs", subtitle = "Comparing TPQ Scores of Diagnoses Groups")+
+  facet_wrap(~Source,scale = "free")
+
+
+
+IC_all_g = ggplot(All_means, aes(x= Diagnosis, y= Score, group = Diagnosis, fill = Diagnosis))+
+  geom_bar(stat = "identity")+geom_errorbar(aes(ymax = Score+SEM,ymin = Score-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("ICs", subtitle = "Comparing TPQ Scores of Diagnoses Groups")+
+  facet_wrap(~IC,scale = "free")
+
+IC_TR_g = ggplot(All_TR_means, aes(x= Session, y= Score, group = Response, color = Response))+
+  geom_line(stat = "identity", size =2,position = position_dodge(0.05))+
+  geom_errorbar(aes(ymax = Score+SEM,ymin = Score-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1.2,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_color_manual(values = c("#00A550","#Eb4C42","#0087BD"))+
+  ggtitle("ICs", subtitle = "Comparing MDD Groups by Response")+
+  facet_wrap(~IC,scale = "free")
+
+
+IC_all_pro = ggplot(All_means_pro, aes(x= Diagnosis, y= Projection, group = Diagnosis, fill = Diagnosis))+
+  geom_bar(stat = "identity")+geom_errorbar(aes(ymax = Projection+SEM,ymin = Projection-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("ICs", subtitle = "Comparing TPQ Scores of Diagnoses Groups")+
+  facet_wrap(~IC,scale = "free")
+
+IC_TR_g_pro = ggplot(All_TR_means_pro, aes(x= Session, y= Projection, group = Response, color = Response))+
+  geom_line(stat = "identity", size =2,position = position_dodge(0.05))+
+  geom_errorbar(aes(ymax = Projection+SEM,ymin = Projection-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1.2,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_color_manual(values = c("#00A550","#Eb4C42","#0087BD"))+
+  ggtitle("ICs", subtitle = "Comparing MDD Groups by Response")+
+  facet_wrap(~IC,scale = "free")
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ## 
+#          Effect of Diagnosis and Treatment on Factors            #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ##
+
+factored_TPQ = TPQ_scores[,c("Initial ID","Session","Diagnosis","Response", paste0("Q",1:100))]
+for (x in 1:12){
+  mult_matrix = matrix(rep(factanal$loadings[x,],nrow(factored_TPQ)), nrow = nrow(factored_TPQ), byrow = TRUE)
+  factored_TPQ[paste0("F",x)] =  apply(factored_TPQ[,5:104]*mult_matrix,1,sum, na.rm= TRUE)
+}
+factored_melted = melt(factored_TPQ, measure.vars = paste0("F",1:12), variable.name = "Factor", value.name = "Value")
+All_means_s = SMeans(sourced_melted, DV = "Value", IVs = c("Diagnosis","Source"), GroupBy = "Diagnosis")
+All_means_s$Source = factor(All_means_s$Source, levels=paste0("S",1:15))
+
+
+
+Factor_Qs = as.data.frame(sapply(Factors_list, function(item) rowSums(TPQ_scores[,item], na.rm = TRUE)))
+Factor_Qs[,c("Initial ID","Session","Diagnosis","Response")] = TPQ_scores[,c("Initial ID","Session","Diagnosis","Response")]
+Factor_Qs = Factor_Qs[complete.cases(Factor_Qs$`Initial ID`),]
+Factor_melted = melt(Factor_Qs, measure.vars = paste0("F",1:11), variable.name = "Factor", value.name = "Score")
+All_means = SMeans(Factor_melted, DV = "Score", IVs = c("Diagnosis","Factor"), GroupBy = "Diagnosis")
+All_means$Factor = factor(All_means$Factor, levels=paste0("F",1:11))
+
+
+
+Factors_TR=Factor_Qs[complete.cases(Factor_Qs$Response),]
+Factors_TR = MatchDelete(Factors_TR,"Session",common="Initial ID")
+Factors_melted_TR = melt(Factors_TR, measure.vars = paste0("F",1:11), variable.name = "Factor", value.name = "Score")
+All_TR_means = SMeans(Factors_melted_TR, DV = "Score", IVs = c("Session","Response","Factor"), GroupBy = "Response")
+All_TR_means$Factor = factor(All_TR_means$Factor, levels=paste0("F",1:11))
+
+
+
+factor_all_g = ggplot(All_means, aes(x= Diagnosis, y= Score, group = Groups, fill = Groups))+
+  geom_bar(stat = "identity")+geom_errorbar(aes(ymax = Score+SEM,ymin = Score-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_fill_manual(values = c("#4EA3DF","#6cBE58","#C33E3B","#808CA3","#B9B0AB"))+
+  ggtitle("Factors", subtitle = "Comparing Groups by Diagnosis")+
+  facet_wrap(~Factor,scale = "fixed")
+
+factor_TR_g = ggplot(All_TR_means, aes(x= Session, y= Score, group = Groups, color = Groups))+
+  geom_line(stat = "identity", size =2,position = position_dodge(0.05))+
+  geom_errorbar(aes(ymax = Score+SEM,ymin = Score-SEM), position = position_dodge(0.05), width = 0.15,color="black")+
+  geom_point(shape = 21, color = "black",fill = "white",size = 1.2,position = position_dodge(0.05))+
+  TypicalTheme+
+  scale_color_manual(values = c("#00A550","#Eb4C42","#0087BD"))+
+  ggtitle("Factors", subtitle = "Comparing MDD Groups by Response")+
+  facet_wrap(~Factor,scale = "free")
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ## 
+#           plot the chosen questions with the results             #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ##
+multiplot(TPQ_q_g,TPQ_TR_g, layout = matrix(c(1,2,2,2), nrow = 1))
+multiplot(IC_q_g,IC_TR_g, layout = matrix(c(1,1,2,2,2,2), nrow = 1))
+multiplot(factor_q_g,factor_TR_g, layout = matrix(c(1,1,2,2,2,2), nrow = 1))
+
+multiplot(TPQ_q_g,TPQ_all_g, layout = matrix(c(1,2,2,2), nrow = 1))
+multiplot(IC_q_g,IC_all_g, layout = matrix(c(1,1,2,2,2,2), nrow = 1))
+multiplot(factor_q_g,factor_all_g, layout = matrix(c(1,1,2,2,2,2), nrow = 1))
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ## 
+#       Correspondance between Factors, ICs and temperaments       #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  ## ##  ## ##  ## ##
+
+
+# Now we find the correlations between factors and ICs, and factors with subtemperaments
+Factors_Temps = data.frame(Factor = paste0("F",1:11), Temp_coocurrance_ratio = NA, Temp = NA,
+                           IC_coocurrance_ratio = NA, IC = NA)
+TPQQuestions_2 = sapply(TPQQuestions[1:12], function(x) paste0("Q", x))
+for (i in 1:length(Factors_list)){
+  item = Factors_list[[i]]
+  sim_count = sapply(TPQQuestions_2, function(TPQ_Q_group) sum(item %in% TPQ_Q_group))
+  max_ratio =max(sim_count)/length(item)
+  max_temp = names(TPQQuestions_2)[which.max(sim_count)]
+  Factors_Temps[i,c("Temp_coocurrance_ratio", "Temp")] = c(round(max_ratio,3),max_temp)
+}
+
+for (i in 1:length(Factors_list)){
+  item = Factors_list[[i]]
+  sim_count = sapply(TPQ_IC_Questions, function(TPQ_IC_group) sum(item %in% TPQ_IC_group))
+  max_ratio =max(sim_count)/length(item)
+  max_IC = names(TPQ_IC_Questions)[which.max(sim_count)]
+  Factors_Temps[i,c("IC_coocurrance_ratio", "IC")] = c(round(max_ratio,3),max_IC)
+}
+
+# Find correlations
+Temp_sums = sapply(TPQQuestions_2, function(item) rowSums(TPQ_scores[,item], na.rm = TRUE))
+IC_sums = sapply(TPQ_IC_Questions, function(item) rowSums(TPQ_scores[,item], na.rm = TRUE))
+Factor_sums = sapply(Factors_list, function(item) rowSums(TPQ_scores[,item], na.rm = TRUE))
+All_sums = data.frame(cbind(Temp_sums,IC_sums))#All_sums = data.frame(cbind(Temp_sums,IC_sums,Factor_sums))
+# find the threshold of inclusion, uncomment if you want to calculate again
+
+IC_cooc = find_threshold(All_sums[1:12], All_sums[13:22], Comparison = "Correlations",G1="TPQ Questions",
+               G2="IC-related Questions", method = "spearman", n_shuffle = 1000, threshold_choice = 0.999)
+
+apply(IC_cooc$cor_list,2,max)
+
+cor_mat=cor(All_sums)
+cor_mat = ifelse(abs(cor_mat)>2*0.2,cor_mat,0)
+corrplot(cor_mat, sig = 0.0005,insig = "p-value", hclust.method = "average", title = "\n\n\nCorrelation Between ICs & Factors Scores With TPQ Scores")
+corrplot(cor_mat[(length(TPQQuestions_2)+1):ncol(cor_mat),1:length(TPQQuestions_2)], sig = 0.0005,insig = "p-value", hclust.method = "average", title = "\n\n\nCorrelation Between ICs Scores With TPQ Scores")
+corrplot(cor_mat[1:length(TPQQuestions_2),(length(TPQQuestions_2)+1):ncol(cor_mat)], sig = 0.0005,insig = "p-value", hclust.method = "average", title = "\n\n\nCorrelation Between Factors Scores With TPQ Scores\n\n")
+
+# Show this as percentage of co-occurance matrices
+
+loadings_cor = matrix(nrow = 12, ncol = 15)
+dimnames(loadings_cor) = list(paste0("F",1:12), names(TPQQuestions))
+names(dimnames(loadings_cor)) = c("Factor Loading","Scales")
+
+for (i in 1:nrow(loadings)){
+  cors = sapply(1:15, function(x) mean(which(loadings[i,]==1)%in% which(tpq_q_cloninger[x,]==1) ))
+  loadings_cor[i,] = cors
+}
+
+loadings_cor = t(ifelse(loadings_cor<0.7, 0,round(loadings_cor,2)))
+
+IC_questions_cor = matrix(nrow = nrow(IC_questions), ncol =15)
+dimnames(IC_questions_cor) = list(paste0("IC",1:n_ICs), names(TPQQuestions)[1:15])
+names(dimnames(IC_questions_cor)) = c("ICs","Scales")
+
+
+for (i in 1:nrow(IC_questions)){
+  cors = sapply(1:15, function(x) mean(which(IC_questions[i,]==1) %in% which(tpq_q_cloninger[x,]==1)))
+  IC_questions_cor[i,] = cors
+}
+
+IC_questions_cor = t(ifelse(IC_questions_cor<0.7, 0,round(IC_questions_cor,2)))
+
+#plot the final result
+corrplot(cbind(IC_questions_cor[,!low_q_count[1:15]],loadings_cor[,!low_q_count_factor[1:12]]), title = "\n\n\nPercentage of Questions of ICs and Factors Included in TPQ Scales")
+corrplot(IC_questions_cor[,!low_q_count[1:15]], title = "\n\n\nPercentage of Questions of ICs Included in TPQ Scales")
+corrplot(loadings_cor[,!low_q_count_factor[1:12]], title = "\n\n\nPercentage of Questions of Factors Included in TPQ Scales")
+
+
+# Find the correlations between factor loadings and TPQ scores
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+#             Crobnach Alpha                  #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+
+return_alpha = function(questions) {
+  # returns 3 items, the name of the subscale,
+  # c.alpha of males and c.alpha of females
+  
+  df = TPQ_scores[questions]
+  M_alpha = cronbach(df[TPQ_scores$Gender == "Male", ])$alpha
+  F_alpha = cronbach(df[TPQ_scores$Gender == "Female", ])$alpha
+  All_alpha = cronbach(df)$alpha
+  return(c( M_alpha, F_alpha, All_alpha))
+}
+TPQ_alpha_values = sapply(TPQQuestions, function(x) return_alpha(paste0("Q", x)))
+TPQ_alpha_cloninger = as.data.frame(t(TPQ_alpha_values))
+colnames(TPQ_alpha_cloninger) = c("Males","Females", "All")
+
+
+# Find c.alpha for ICs
+IC_alpha_values = sapply(ICs,function(x) return_alpha(TPQ_IC_Questions[[x]]))
+IC_alpha_values = as.data.frame(t(IC_alpha_values))
+colnames(IC_alpha_values) = c("Males","Females", "All")
+
+# Find c.alpha for ICs
+F_alpha_values = sapply(paste0("F",1:11),function(x) return_alpha(Factors_list[[x]]))
+F_alpha_values = as.data.frame(t(F_alpha_values))
+colnames(F_alpha_values) = c("Males","Females", "All")
+
+
+# Find c_alpha for factored data
+cronbach(factored_TPQ[,paste0("F",1:12)])
+
+# compare both cronbachs
+apply(IC_alpha_values, 2, mean, na.rm = TRUE)
+apply(F_alpha_values, 2, mean, na.rm = TRUE)
+apply(TPQ_alpha_cloninger[1:12,], 2, mean, na.rm = TRUE)
+
+
+
+
+
+
+# Comare different ICASSOs (Test vs Retest and leave-one-out) ----------------------------------------------
+# Import HC data
+hc_pro_test = ICASSO_hc_test$projections[,1:(8+sum(ICASSO_hc_test$scores>0.89))]
+hc_pro_retest = ICASSO_hc_retest$projections[,1:(8+sum(ICASSO_hc_retest$scores>0.89))]
+hc_pro_test$Initial_ID = TPQ_scores$`Initial ID`[match(hc_pro_test$ID,TPQ_scores$`Final ID`)]
+hc_pro_retest$Initial_ID = TPQ_scores$`Initial ID`[match(hc_pro_retest$ID,TPQ_scores$`Final ID`)]
+hc_pro_test = hc_pro_test[match(hc_pro_retest$Initial_ID,hc_pro_test$Initial_ID),]
+
+hc_src_test = data.frame(t(ICASSO_hc_test$sources[ICASSO_hc_test$scores>0.89,-101]))
+hc_src_retest = data.frame(t(ICASSO_hc_retest$sources[ICASSO_hc_retest$scores>0.89,-101]))
+colnames(hc_src_test) = paste0("IC",1:ncol(hc_src_test))
+colnames(hc_src_retest) = paste0("IC",1:ncol(hc_src_retest))
+
+# Import MDD data
+mdd_pro_test = ICASSO_mdd_test$projections[,1:(8+sum(ICASSO_mdd_test$scores>0.89))]
+mdd_pro_retest = ICASSO_mdd_retest$projections[,1:(8+sum(ICASSO_mdd_retest$scores>0.89))]
+mdd_pro_test$Initial_ID = TPQ_scores$`Initial ID`[match(mdd_pro_test$ID,TPQ_scores$`Final ID`)]
+mdd_pro_retest$Initial_ID = TPQ_scores$`Initial ID`[match(mdd_pro_retest$ID,TPQ_scores$`Final ID`)]
+mdd_pro_test = mdd_pro_test[match(mdd_pro_retest$Initial_ID,mdd_pro_test$Initial_ID),]
+
+mdd_src_test = data.frame(t(ICASSO_mdd_test$sources[ICASSO_mdd_test$scores>0.89,-101]))
+mdd_src_retest = data.frame(t(ICASSO_mdd_retest$sources[ICASSO_mdd_retest$scores>0.89,-101]))
+colnames(mdd_src_test) = paste0("IC",1:ncol(mdd_src_test))
+colnames(mdd_src_retest) = paste0("IC",1:ncol(mdd_src_retest))
+
+
+# Projection correlations
+cor_hc_pro = find_threshold(rbind(hc_pro_test,hc_pro_test), rbind(hc_pro_retest,hc_pro_retest),Comparison = "Projections",G1="HC at Test",
+                            G2="HC at Retest", method = "spearman", n_shuffle = 1000, threshold_choice = 0.95)
+
+
+cor_mdd_pro = find_threshold(mdd_pro_test, mdd_pro_retest,Comparison = "Projections",G1="MDD at Test",
+                            G2="MDD at Retest", method = "spearman", n_shuffle = 400, threshold_choice = 0.95)
+
+# Sources correlations
+cor_hc_src = find_threshold(hc_src_test, hc_src_retest,Comparison = "Sources",G1="HC at Test",
+                            G2="HC at Retest", method = "spearman", n_shuffle = 400, threshold_choice = 0.95)
+
+cor_mdd_src = find_threshold(mdd_src_test, mdd_src_retest,Comparison = "Sources",G1="MDD at Test",
+                             G2="MDD at Retest", method = "spearman", n_shuffle = 400, threshold_choice = 0.95)
+
+# sources correlation between MDD and HC - validity check
+cor_test_src = find_threshold(mdd_src_test, hc_src_test,Comparison = "Sources",G1="MDD at Test",
+                              G2="HC at Test", method = "spearman", n_shuffle = 400, threshold_choice = 0.95)
+cor_retest_src = find_threshold(mdd_src_retest, hc_src_retest,Comparison = "Sources",G1="MDD at Retest",
+                              G2="HC at Retest", method = "spearman", n_shuffle = 400, threshold_choice = 0.95)
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+# Leave-one out correlations
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+# import data
+all_src = data.frame(t(ICASSO_all$sources[ICASSO_all$scores>0.849,-101]))
+colnames(all_src) = paste0("IC",1:ncol(all_src))
+
+hc_src = data.frame(t(ICASSO_hc$sources[ICASSO_hc$scores>0.849,-101]))
+no_hc_src = data.frame(t(ICASSO_noHC$sources[ICASSO_noHC$scores>0.849,-101]))
+colnames(hc_src) = paste0("IC",1:ncol(hc_src))
+colnames(no_hc_src) = paste0("IC",1:ncol(no_hc_src))
+
+mdd_src = data.frame(t(ICASSO_mdd$sources[ICASSO_mdd$scores>0.849,-101]))
+no_mdd_src = data.frame(t(ICASSO_noMDD$sources[ICASSO_noMDD$scores>0.849,-101]))
+colnames(mdd_src) = paste0("IC",1:ncol(mdd_src))
+colnames(no_mdd_src) = paste0("IC",1:ncol(no_mdd_src))
+
+gad_src = data.frame(t(ICASSO_gad$sources[ICASSO_gad$scores>0.849,-101]))
+no_gad_src = data.frame(t(ICASSO_noGAD$sources[ICASSO_noGAD$scores>0.849,-101]))
+colnames(gad_src) = paste0("IC",1:ncol(gad_src))
+colnames(no_gad_src) = paste0("IC",1:ncol(no_gad_src))
+
+ptsd_src = data.frame(t(ICASSO_ptsd$sources[ICASSO_ptsd$scores>0.849,-101]))
+no_ptsd_src = data.frame(t(ICASSO_noPTSD$sources[ICASSO_noPTSD$scores>0.849,-101]))
+colnames(ptsd_src) = paste0("IC",1:ncol(ptsd_src))
+colnames(no_ptsd_src) = paste0("IC",1:ncol(no_ptsd_src))
+
+tnp_src = data.frame(t(ICASSO_tnp$sources[ICASSO_tnp$scores>0.849,-101]))
+no_tnp_src = data.frame(t(ICASSO_noTNP$sources[ICASSO_noTNP$scores>0.849,-101]))
+colnames(tnp_src) = paste0("IC",1:ncol(tnp_src))
+colnames(no_tnp_src) = paste0("IC",1:ncol(no_tnp_src))
+
+# for HC
+cor_hc_src = find_threshold(all_src, no_hc_src,Comparison = "Sources",G1="Decomposition with HC Alone",
+                              G2="Decomposition without HC", method = "spearman", n_shuffle = 1000, threshold_choice = 0.999)
+
+# for MDD
+cor_mdd_src = find_threshold(all_src, no_mdd_src,Comparison = "Sources",G1="Decomposition with MDD Alone",
+                              G2="Decomposition without MDD", method = "spearman", n_shuffle = 1000, threshold_choice = 0.999)
+
+# for GAD
+cor_gad_src = find_threshold(all_src, no_gad_src,Comparison = "Sources",G1="Decomposition with GAD Alone",
+                             G2="Decomposition without GAD", method = "spearman", n_shuffle = 1000, threshold_choice = 0.999)
+
+# for TNP
+cor_tnp_src = find_threshold(all_src, no_tnp_src,Comparison = "Sources",G1="Decomposition with TNP Alone",
+                             G2="Decomposition without TNP", method = "spearman", n_shuffle = 1000, threshold_choice = 0.999)
+
+# for PTSD
+cor_ptsd_src = find_threshold(all_src, no_ptsd_src,Comparison = "Sources",G1="Decomposition with PTSD Alone",
+                             G2="Decomposition without PTSD", method = "spearman", n_shuffle = 1000, threshold_choice = 0.999)
+
+
+
+
+
+# Reconstructed Data Correlation (Test vs Retest) --------------------------------------------
+hc_test_reco = ICASSO_hc_test$reco[ICASSO_hc_test$scores>0.849]
+hc_retest_reco = ICASSO_hc_retest$reco[ICASSO_hc_retest$scores>0.849]
+
+# add initial ID to hc_retest_reco
+for (i in 1:length(hc_retest_reco)){
+  hc_retest_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(hc_retest_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+
+# add initial ID to hc_test_reco
+for (i in 1:length(hc_test_reco)){
+  hc_test_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(hc_test_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+# rearrange_inds is the indices needed to shuffle the test data frames to match those of retest
+rearrange_retest = match(hc_retest_reco[[1]]$Initial_ID,hc_test_reco[[1]]$Initial_ID)
+
+# rearrange the IDs at test to match those of retest
+for (i in 1:length(hc_test_reco)){
+  hc_test_reco[[i]] = hc_test_reco[[i]][rearrange_retest,]
+}
+
+
+# Create the matrix of correlation. It should consist, for now, from vectorized data frames
+test_dfs = sapply(1:length(hc_test_reco), function(x) melt(hc_test_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_hc_test = data.frame(Subject = test_dfs[[1]]$ID, IC1 = test_dfs[[1]]$value)
+for (i in 2:length(test_dfs)){
+  final_hc_test[[paste0("IC",i)]] = test_dfs[[i]]$value
+}
+
+retest_dfs = sapply(1:length(hc_retest_reco), function(x) melt(hc_retest_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_hc_retest = data.frame(Subject = retest_dfs[[1]]$ID, IC1 = retest_dfs[[1]]$value)
+for (i in 2:length(retest_dfs)){
+  final_hc_retest[[paste0("IC",i)]] = retest_dfs[[i]]$value
+}
+
+
+cor_matrix = find_threshold(final_hc_test, final_hc_retest,Comparison = "Reconstructed Data",G1="HC at Test",
+                            G2="HC at Retest", method = "spearman", n_shuffle = 50, threshold_choice = 0.999)
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+# For MDD
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+
+mdd_test_reco = ICASSO_mdd_test$reco[ICASSO_mdd_test$scores>0.849]
+mdd_retest_reco = ICASSO_mdd_retest$reco[ICASSO_mdd_retest$scores>0.849]
+
+# add initial ID to mdd_retest_reco
+for (i in 1:length(mdd_retest_reco)){
+  mdd_retest_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(mdd_retest_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+
+# add initial ID to mdd_test_reco
+for (i in 1:length(mdd_test_reco)){
+  mdd_test_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(mdd_test_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+# rearrange_inds is the indices needed to shuffle the test data frames to match those of retest
+rearrange_retest = match(mdd_retest_reco[[1]]$Initial_ID,mdd_test_reco[[1]]$Initial_ID)
+
+# rearrange the IDs at test to match those of retest
+for (i in 1:length(mdd_test_reco)){
+  mdd_test_reco[[i]] = mdd_test_reco[[i]][rearrange_retest,]
+}
+
+
+# Create the matrix of correlation. It should consist, for now, from vectorized data frames
+test_dfs = sapply(1:length(mdd_test_reco), function(x) melt(mdd_test_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_mdd_test = data.frame(Subject = test_dfs[[1]]$ID, IC1 = test_dfs[[1]]$value)
+for (i in 2:length(test_dfs)){
+  final_mdd_test[[paste0("IC",i)]] = test_dfs[[i]]$value
+}
+
+retest_dfs = sapply(1:length(mdd_retest_reco), function(x) melt(mdd_retest_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_mdd_retest = data.frame(Subject = retest_dfs[[1]]$ID, IC1 = retest_dfs[[1]]$value)
+for (i in 2:length(retest_dfs)){
+  final_mdd_retest[[paste0("IC",i)]] = retest_dfs[[i]]$value
+}
+
+cor_matrix_mdd = find_threshold(final_mdd_test, final_mdd_retest,Comparison = "Reconstructed Data",G1="MDD at Test",
+                            G2="MDD at Retest", method = "spearman", n_shuffle = 50, threshold_choice = 0.999)
+
+
+#old_threshold = find_threshold_old(t(final_mdd_test[,2:length(final_mdd_test)]), t(final_mdd_retest[,2:length(final_mdd_retest)]),
+#                   150, cor_method = "spearman")
+
+# Correlate a list of HC at test and MDD at test - Confirmatory analysis
+conf_mdd = final_mdd_test[-seq(91, 9100, by=91),]# remove the last subject of each dataset
+conf_hc = final_hc_test
+cor_mat_test = find_threshold(conf_mdd, conf_hc,Comparison = "Reconstructed Data",G1="MDD",
+                              G2="HC", method = "spearman", n_shuffle = 50, threshold_choice = 0.999)
+
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+# For MDD-responders
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+resp_test_reco = ICASSO_resp_test$reco[ICASSO_resp_test$scores>0.849]
+resp_retest_reco = ICASSO_resp_retest$reco[ICASSO_resp_retest$scores>0.849]
+
+# add initial ID to mdd_retest_reco
+for (i in 1:length(resp_retest_reco)){
+  resp_retest_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(resp_retest_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+
+# add initial ID to resp_test_reco
+for (i in 1:length(resp_test_reco)){
+  resp_test_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(resp_test_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+# rearrange_inds is the indices needed to shuffle the test data frames to match those of retest
+rearrange_retest = match(resp_retest_reco[[1]]$Initial_ID,resp_test_reco[[1]]$Initial_ID)
+
+# rearrange the IDs at test to match those of retest
+for (i in 1:length(resp_test_reco)){
+  resp_test_reco[[i]] = resp_test_reco[[i]][rearrange_retest,]
+}
+
+
+# Create the matrix of correlation. It should consist, for now, from vectorized data frames
+test_dfs = sapply(1:length(resp_test_reco), function(x) melt(resp_test_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_resp_test = data.frame(Subject = test_dfs[[1]]$ID, IC1 = test_dfs[[1]]$value)
+for (i in 2:length(test_dfs)){
+  final_resp_test[[paste0("IC",i)]] = test_dfs[[i]]$value
+}
+
+retest_dfs = sapply(1:length(resp_retest_reco), function(x) melt(resp_retest_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_resp_retest = data.frame(Subject = retest_dfs[[1]]$ID, IC1 = retest_dfs[[1]]$value)
+for (i in 2:length(retest_dfs)){
+  final_resp_retest[[paste0("IC",i)]] = retest_dfs[[i]]$value
+}
+
+cor_matrix_resp = find_threshold(final_resp_test, final_resp_retest,Comparison = "Reconstructed Data",G1="Responders at Test",
+                                 G2="Responders at Retest", method = "spearman", n_shuffle = 50, threshold_choice = 0.999)
+
+
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+# For MDD-nonresponders
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+nonresp_test_reco = ICASSO_nonresp_test$reco[ICASSO_nonresp_test$scores>0.849]
+nonresp_retest_reco = ICASSO_nonresp_retest$reco[ICASSO_nonresp_retest$scores>0.849]
+
+# add initial ID to mdd_retest_reco
+for (i in 1:length(nonresp_retest_reco)){
+  nonresp_retest_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(nonresp_retest_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+
+# add initial ID to nonresp_test_reco
+for (i in 1:length(nonresp_test_reco)){
+  nonresp_test_reco[[i]]$Initial_ID = TPQ_scores$`Initial ID`[match(nonresp_test_reco[[i]]$ID,TPQ_scores$`Final ID`)]
+}
+
+# rearrange_inds is the indices needed to shuffle the test data frames to match those of retest
+rearrange_retest = match(nonresp_retest_reco[[1]]$Initial_ID,nonresp_test_reco[[1]]$Initial_ID)
+
+# rearrange the IDs at test to match those of retest
+for (i in 1:length(nonresp_test_reco)){
+  nonresp_test_reco[[i]] = nonresp_test_reco[[i]][rearrange_retest,]
+}
+
+
+# Create the matrix of correlation. It should consist, for now, from vectorized data frames
+test_dfs = sapply(1:length(nonresp_test_reco), function(x) melt(nonresp_test_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_nonresp_test = data.frame(Subject = test_dfs[[1]]$ID, IC1 = test_dfs[[1]]$value)
+for (i in 2:length(test_dfs)){
+  final_nonresp_test[[paste0("IC",i)]] = test_dfs[[i]]$value
+}
+
+retest_dfs = sapply(1:length(nonresp_retest_reco), function(x) melt(nonresp_retest_reco[[x]][,c(1,9:108)], id.vars = "ID"), simplify = FALSE)
+final_nonresp_retest = data.frame(Subject = retest_dfs[[1]]$ID, IC1 = retest_dfs[[1]]$value)
+for (i in 2:length(retest_dfs)){
+  final_nonresp_retest[[paste0("IC",i)]] = retest_dfs[[i]]$value
+}
+
+cor_matrix_nonresp = find_threshold(final_nonresp_test, final_nonresp_retest,Comparison = "Reconstructed Data",G1="NonResponders at Test",
+                                 G2="NonResponders at Retest", method = "spearman", n_shuffle = 50, threshold_choice = 0.999)
+
+
+# IC Names--------------------------------------------
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+#                     IC Names                      #
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+##
+
+# Test the Treshold Method ------------------------------------------------------
+or_data_1 = ICASSO_hc$sources[ICASSO_hc$scores > 0.85,1:100]
+or_data_2 = ICASSO_noHC$sources[ICASSO_noHC$scores > 0.85,1:100]
+n_shuffle=1250
+
+# registerDoParallel(cores=8)
+# cor_matrices = foreach(i=1:8) %dopar% find_threshold(or_data_1,or_data_2, n_shuffle)
+# cor_matrix = abind(cor_matrices, along = 1)
+
+cor_threshold = sapply(1:nrow(or_data_2), function (n) sapply(1:nrow(or_data_1), function (m) quantile(cor_matrix[,m,n],0.999)))
+
+# delete later
+# find the shuffle threshold and whether or not there is a cieling for this
+threshold_array = rep(list(matrix(nrow = nrow(or_data_1), ncol = nrow(or_data_2))),2)
+shuffles = c(15,50,100,500,1000,2500,5000,7500)
+for (i in 1:length(shuffles)){
+  n_shuffle = shuffles[i]
+  registerDoParallel(cores=8)
+  cor_matrices = foreach(i=1:8) %dopar% find_threshold(or_data_1,or_data_2, n_shuffle)
+  cor_matrix = abind(cor_matrices, along = 1)
+  
+  cor_threshold = sapply(1:nrow(or_data_2), function (n)
+    sapply(1:nrow(or_data_1), function (m)
+      quantile(cor_matrix[, m, n], 0.999)))
+  threshold_array[[i]] = cor_threshold
+}
+
+data_threshold = data.frame(correlation=c(abind(threshold_array)))
+data_threshold$Data1 = factor(rep(paste0("C",1:nrow(or_data_1)),nrow(or_data_2)*length(thresholds)), levels = paste0("C",1:nrow(or_data_1)))
+data_threshold$Data2 = factor(rep(rep(paste0("C",1:nrow(or_data_2)),each = nrow(or_data_1)),length(thresholds)),paste0("C",1:nrow(or_data_2)))
+data_threshold$n_shuflle = rep(shuffles, each = nrow(or_data_1)*nrow(or_data_2))
+for(d1 in levels(factor(data_threshold$Data1))){
+  for (d2 in levels(factor(data_threshold$Data2))){
+    data_threshold$max[data_threshold$Data1 == d1&data_threshold$Data2 == d2] =
+      max(data_threshold$correlation[data_threshold$Data1 == d1&data_threshold$Data2 == d2])
+  }
+}
+
+
+ggplot(data_threshold,aes(x=n_shuflle,y= correlation))+geom_line(size = 1.2)+
+  geom_hline(aes(yintercept = max), color = "red")+
+  facet_grid(Data1~Data2)+theme()
+# end delete
+# Improve upon the threshold method -------------------------------------------
+# A function to find the correlation threshold of two data frames
+# both data frames should have the same number of columns
+sources_hc_test = data.frame(t(ICASSO_hc_test$sources[ICASSO_hc$scores > 0.85,1:100]))
+sources_hc_retest = data.frame(t(ICASSO_hc_retest$sources[ICASSO_hc$scores > 0.85,1:100]))
+
+sources_mdd_test = data.frame(t(ICASSO_mdd_test$sources[ICASSO_mdd_test$scores > 0.85,1:100]))
+sources_mdd_retest = data.frame(t(ICASSO_mdd_retest$sources[ICASSO_mdd_retest$scores > 0.85,1:100]))
+
+sources_nonresp_test = data.frame(t(ICASSO_nonresp_test$sources[ICASSO_nonresp_test$scores > 0.85,1:100]))
+sources_nonresp_retest = data.frame(t(ICASSO_nonresp_retest$sources[ICASSO_nonresp_retest$scores > 0.85,1:100]))
+
+
+#sources_hc_test = read.csv("/home/asawalma/Desktop/sources_hc_retest.xlsx")
+#sources_hc_retest = read.csv("/home/asawalma/Desktop/sources_hc_retest.xlsx")
+
+
+sh_th = find_threshold(or_data_1 =sources_hc_test,or_data_2 = sources_hc_retest,
+               Comparison = "Sources",G1="HC at test", G2="HC at retest",
+               method = "spearman", n_shuffle =1000, threshold_choice = 0.95, simulate = FALSE)
+
+
+
+sim_th = find_threshold(or_data_1 =sources_hc_test,or_data_2 = sources_hc_retest,
+                        Comparison = "Sources",G1="HC at test", G2="HC at retest",
+                        method = "spearman", n_shuffle = 100, threshold_choice = 0.999, simulate = TRUE)
+
+
+
+hc_mdd_th = find_threshold(or_data_1 =sources_mdd_test,or_data_2 = sources_hc_test,
+                           Comparison = "Sources",G1="MDD at test", G2="HC at test",
+                           method = "spearman", n_shuffle = 10000, threshold_choice = 0.999, simulate = TRUE)
+
+mdd_th = find_threshold(or_data_1 =sources_mdd_test,or_data_2 = sources_mdd_retest,
+                        Comparison = "Sources",G1="MDD at test", G2="MDD at retest",
+                        method = "spearman", n_shuffle = 10000, threshold_choice = 0.999, simulate = TRUE)
+
+resp_th = find_threshold(or_data_1 =sources_nonresp_test,or_data_2 = sources_nonresp_retest,
+                        Comparison = "Sources",G1="NonResponders at test", G2="NonResponders at retest",
+                        method = "spearman", n_shuffle = 10000, threshold_choice = 0.999, simulate = TRUE)
+
+
+
+
+
+
+
+
+# Delete later
+TPQ_responders = TPQ_scores[complete.cases(TPQ_scores$Response) & complete.cases(TPQ_scores$QO1)& TPQ_scores$Response == "Responder",
+                            c("Initial ID","Final ID","Session","Diagnosis",paste0("QO",1:100))]
+TPQ_responders = MatchDelete(TPQ_responders, "Session","Initial ID")
+
+TPQ_nonresponders = TPQ_scores[complete.cases(TPQ_scores$Response) & complete.cases(TPQ_scores$QO1)& TPQ_scores$Response == "Non-responder",
+                            c("Initial ID","Final ID","Session","Diagnosis",paste0("QO",1:100))]
+TPQ_nonresponders = MatchDelete(TPQ_nonresponders, "Session","Initial ID")
+
+
+write.csv(TPQ_nonresponders,"/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/TPQData_ICA_nonrespoder.xlsx")
+write.csv(TPQ_responders,"/home/asawalma/git/Data/TPQ-Analysis/TPQ_data/TPQData_ICA_respoder.xlsx")
+
+
+TPQ_scores_tr = TPQ_scores[c("Initial ID","Diagnosis","Response","Session","NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")]
+TPQ_scores_tr = TPQ_scores_tr[complete.cases(TPQ_scores_tr$`Initial ID`) & complete.cases(TPQ_scores_tr$NS1),]
+TPQ_scores_tr = MatchDelete(TPQ_scores_tr, "Session","Initial ID")
+TPQ_scores_t = TPQ_scores_tr[TPQ_scores_tr$Session == "Test",]
+TPQ_scores_r = TPQ_scores_tr[TPQ_scores_tr$Session == "Retest",]
+TPQ_scores_t = TPQ_scores_t[match(TPQ_scores_r$`Initial ID`,TPQ_scores_t$`Initial ID`),]
+
+
+cor_all = find_threshold(or_data_1 = TPQ_scores_t,or_data_2 = TPQ_scores_r,
+                        Comparison = "Reconstructed Data",G1="HC at test", G2="HC at retest",
+                        method = "spearman", n_shuffle = 1000, threshold_choice = 0.999, simulate = TRUE)
+
+cor_hc = find_threshold(or_data_1 = TPQ_scores_t[TPQ_scores_t$Diagnosis == "HC",],
+                        or_data_2 = TPQ_scores_r[TPQ_scores_t$Diagnosis == "HC",],
+                        Comparison = "Reconstructed Data",G1="HC at test", G2="HC at retest",
+                        method = "spearman", n_shuffle = 200, threshold_choice = 0.95, simulate = TRUE)
+
+cor_mdd = find_threshold(or_data_1 = TPQ_scores_t[TPQ_scores_t$Diagnosis == "MDD",],
+                         or_data_2 = TPQ_scores_r[TPQ_scores_r$Diagnosis == "MDD",],
+                         Comparison = "Reconstructed Data",G1="MDD at test", G2="MDD at retest",
+                         method = "spearman", n_shuffle = 200, threshold_choice = 0.95, simulate = TRUE)
+
+cor_mdd_n_resp = find_threshold(or_data_1 = TPQ_scores_t[(TPQ_scores_t$Diagnosis == "MDD"&TPQ_scores_t$Response == "Non-responder"&complete.cases(TPQ_scores_t$Response)),],
+                                or_data_2 = TPQ_scores_r[(TPQ_scores_r$Diagnosis == "MDD"&TPQ_scores_r$Response == "Non-responder"&complete.cases(TPQ_scores_r$Response)),],
+                                Comparison = "Reconstructed Data",G1="MDD-NonResponders at test", G2="MDD-NonResponders at retest",
+                                method = "spearman", n_shuffle = 200, threshold_choice = 0.95, simulate = TRUE)
+
+cor_mdd_resp = find_threshold(or_data_1 = TPQ_scores_t[(TPQ_scores_t$Diagnosis == "MDD"&TPQ_scores_t$Response == "Responder"&complete.cases(TPQ_scores_t$Response)),],
+                                or_data_2 = TPQ_scores_r[(TPQ_scores_r$Diagnosis == "MDD"&TPQ_scores_r$Response == "Responder"&complete.cases(TPQ_scores_r$Response)),],
+                                Comparison = "Reconstructed Data",G1="MDD-Resp at test", G2="MDD-Resp at retest",
+                                method = "spearman", n_shuffle = 200, threshold_choice = 0.95, simulate = TRUE)
+
+
+
+
+
+# Statistics on the threshold method, sample size and numbre of iterations -------------------------------------------
+
+# Difference between simulation and shuffling
+# for data size of 100 - same 100 tested and retested
+shuffles = c(50,100,500,1000,1500,2000,3000,4000,6000,8000,10000)#,12500, 15000)
+TPQ_scores_r = TPQ_scores_r[1:100,]
+TPQ_scores_t = TPQ_scores_t[1:100,]
+
+sim_values_100 = sapply(shuffles, function(shuf)  find_threshold(TPQ_scores_t, TPQ_scores_r,Comparison = "Reconstructed Data",G1="HC at test",
+                                                                 G2="HC at retest", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = TRUE)$standard_thresholds)
+shuf_values_100 = sapply(shuffles, function(shuf)  find_threshold(TPQ_scores_t, TPQ_scores_r,Comparison = "Reconstructed Data",G1="HC at test",
+                                                                  G2="HC at retest", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds)
+
+sim_shuffle_100 = data.frame(simulations = c(sim_values_100), shuffles = c(shuf_values_100), perm = rep(shuffles, each = 5),
+                             threshold_lvl = rep(c(10,50,90,95,99), length(shuffles)))
+sim_dif_100 = melt(sim_shuffle_100,
+                   id.vars = c("perm","threshold_lvl"),value.name = "threshold", variable.name = "type")
+
+
+# for data size of 200 - same 200 tested and retested
+sim_values_200 = sapply(shuffles, function(shuf)  find_threshold(rbind(TPQ_scores_t,TPQ_scores_t), rbind(TPQ_scores_r,TPQ_scores_r),Comparison = "Reconstructed Data",G1="HC at test",
+                                                                 G2="HC at retest", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = TRUE)$standard_thresholds)
+shuf_values_200 = sapply(shuffles, function(shuf)  find_threshold(rbind(TPQ_scores_t,TPQ_scores_t), rbind(TPQ_scores_r,TPQ_scores_r),Comparison = "Reconstructed Data",G1="HC at test",
+                                                                  G2="HC at retest", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds)
+
+sim_shuffle_200 = data.frame(simulations = c(sim_values_200), shuffles = c(shuf_values_200), perm = rep(shuffles, each = 5),
+                             threshold_lvl = rep(c(10,50,90,95,99), length(shuffles)))
+sim_dif_200 = melt(sim_shuffle_200,
+                   id.vars = c("perm","threshold_lvl"),value.name = "threshold", variable.name = "type")
+
+
+
+
+#for a size of 500 -different subjects
+TPQ_scores_1 = TPQ_scores[(complete.cases(TPQ_scores$`Initial ID`)&complete.cases(TPQ_scores$Q1)),][1:500,c("Initial ID","Diagnosis","Session","NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")]
+TPQ_scores_2= TPQ_scores[(complete.cases(TPQ_scores$`Initial ID`)&complete.cases(TPQ_scores$Q1)),][501:1000,c("Initial ID","Diagnosis","Session","NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")]
+sim_values_500 = sapply(shuffles, function(shuf)
+  find_threshold(TPQ_scores_1,
+                 TPQ_scores_2,
+                 Comparison = "Reconstructed Data",
+                 G1 = "HC at test",
+                 G2 = "HC at retest",
+                 method = "spearman",
+                 n_shuffle = shuf,
+                 threshold_choice = 0.95,
+                 simulate = TRUE)$standard_thresholds)
+shuf_values_500 = sapply(shuffles, function(shuf)  find_threshold(TPQ_scores_1, TPQ_scores_2,Comparison = "Reconstructed Data",G1="random 500",
+                                                                  G2="another random 500", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds)
+
+sim_shuffle_500 = data.frame(simulations = c(sim_values_500), shuffles = c(shuf_values_500), perm = rep(shuffles, each = 5),
+                             threshold_lvl = rep(c(10,50,90,95,99), length(shuffles)))
+sim_dif_500 = melt(sim_shuffle_500,
+                   id.vars = c("perm","threshold_lvl"),value.name = "threshold", variable.name = "type")
+
+
+
+
+#for a size of 500 - exactly the same subjects
+TPQ_scores_1 = TPQ_scores[(complete.cases(TPQ_scores$`Initial ID`)&complete.cases(TPQ_scores$Q1)),][1:500,c("Initial ID","Diagnosis","Session","NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")]
+sim_values_500_2 = sapply(shuffles, function(shuf)
+  find_threshold(TPQ_scores_1,
+                 TPQ_scores_1,
+                 Comparison = "Reconstructed Data",
+                 G1 = "HC at test",
+                 G2 = "HC at test",
+                 method = "spearman",
+                 n_shuffle = shuf,
+                 threshold_choice = 0.95,
+                 simulate = TRUE)$standard_thresholds)
+shuf_values_500_2 = sapply(shuffles, function(shuf)  find_threshold(TPQ_scores_1, TPQ_scores_1,Comparison = "Reconstructed Data",G1="random 500",
+                                                                   G2="the same random 500", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds)
+
+sim_shuffle_500_2 = data.frame(simulations = c(sim_values_500_2), shuffles = c(shuf_values_500_2), perm = rep(shuffles, each = 5),
+                              threshold_lvl = rep(c(10,50,90,95,99), length(shuffles)))
+sim_dif_500_2 = melt(sim_shuffle_500_2, id.vars = c("perm","threshold_lvl"),value.name = "threshold", variable.name = "type")
+
+
+#for a size of 900 - different subjects
+TPQ_scores_1 = TPQ_scores[(complete.cases(TPQ_scores$`Initial ID`)&complete.cases(TPQ_scores$Q1)),][1:900,c("Initial ID","Diagnosis","Session","NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")]
+TPQ_scores_2= TPQ_scores[(complete.cases(TPQ_scores$`Initial ID`)&complete.cases(TPQ_scores$Q1)),][901:1800,c("Initial ID","Diagnosis","Session","NS1","NS2","NS3","NS4","NS","HA1","HA2","HA3","HA4","HA","RD1","RD2","RD3","RD4","RD")]
+sim_values_900 = sapply(shuffles, function(shuf)
+  find_threshold(TPQ_scores_1,
+                 TPQ_scores_2,
+                 Comparison = "Reconstructed Data",
+                 G1 = "HC at test",
+                 G2 = "HC at retest",
+                 method = "spearman",
+                 n_shuffle = shuf,
+                 threshold_choice = 0.95,
+                 simulate = TRUE)$standard_thresholds)
+shuf_values_900 = sapply(shuffles, function(shuf)  find_threshold(TPQ_scores_1, TPQ_scores_2,Comparison = "Reconstructed Data",G1="Random 900",
+                                                                   G2="Another Random 900", method = "spearman", n_shuffle = shuf, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds)
+
+sim_shuffle_900 = data.frame(simulations = c(sim_values_900), shuffles = c(shuf_values_900), perm = rep(shuffles, each = 5),
+                              threshold_lvl = rep(c(10,50,90,95,99), length(shuffles)))
+sim_dif_900 = melt(sim_shuffle_900,
+                    id.vars = c("perm","threshold_lvl"),value.name = "threshold", variable.name = "type")
+
+
+
+
+sim_dif_fin = rbind(sim_dif_100,sim_dif_200,sim_dif_500,sim_dif_500_2,sim_dif_900)
+sim_dif_fin$size = rep(c("100","200", "500_dif", "500_same", "900"), each = nrow(sim_dif_100))
+ggplot(sim_dif_fin, aes(x = perm, y= threshold, color = type))+geom_line()+
+  geom_point()+scale_color_manual(values = c("#Eb4C42","#0087BD","#6cBE58","#00A550","#808CA3"))+
+  TypicalTheme+ggtitle("Threshold values at different Number of Simulations/Permutations")+
+  facet_grid(size~threshold_lvl)
+
+# For threshold 0.95 only
+ggplot(sim_dif_fin[sim_dif_fin$threshold_lvl == "95",], aes(x = perm, y= threshold, color =size ))+geom_line(size = 1.5)+
+  geom_point(size = 2.5,fill = "white",shape = 21)+scale_color_manual(values = c("#Eb4C42","#0087BD","#6cBE58","#00A550","#808CA3"))+
+  TypicalTheme+ggtitle("Threshold values at different Number of Subjects - Threshold = 0.95")+
+  facet_grid(.~type)
+
+
+
+
+
+find_threshold(TPQ_scores_t, TPQ_scores_r,Comparison = "Reconstructed Data",G1="HC at test",
+               G2="HC at retest", method = "pearson", n_shuffle = 1000, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds
+
+find_threshold(TPQ_scores_1, TPQ_scores_2,Comparison = "Reconstructed Data",G1="HC at test",
+               G2="HC at retest", method = "pearson", n_shuffle = 1000, threshold_choice = 0.95, simulate = FALSE)$standard_thresholds
+
+find_threshold(TPQ_scores_1, TPQ_scores_2,Comparison = "Reconstructed Data",G1="HC at test",
+               G2="HC at retest", method = "pearson", n_shuffle = 1000, threshold_choice = 0.95, simulate = TRUE)$standard_thresholds
+
+
+
+# create two random data sets and correlate them using the shuffle method
+Data_1 = data.frame(matrix(sample(1000,1000,replace = TRUE),ncol = 10))
+Data_2 = data.frame(matrix(sample(1000,1000,replace = TRUE),ncol = 10))
+colnames(Data_1) = paste0("C1_",1:10)
+colnames(Data_2) = paste0("C2_",1:10)
+rownames(Data_1) = paste0("R1_",1:100)
+rownames(Data_2) = paste0("R2_",1:100)
+
+Data_1_t = data.frame(t(Data_1))
+Data_2_t = data.frame(t(Data_2))
+
+
+Data_1 = TPQ_scores_t[(TPQ_scores_t$Diagnosis == "MDD"&TPQ_scores_t$Response == "Responder"&complete.cases(TPQ_scores_t$Response)),]
+Data_2 = TPQ_scores_r[(TPQ_scores_r$Diagnosis == "MDD"&TPQ_scores_r$Response == "Responder"&complete.cases(TPQ_scores_r$Response)),]
+
+find_threshold(Data_1_t, Data_2_t,Comparison = "Reconstructed Data",G1="Random 200",
+               G2="Random 200", method = "spearman", n_shuffle = 100, threshold_choice = 0.95, simulate = FALSE)
+find_threshold(Data_1, Data_2,Comparison = "Reconstructed Data",G1="Random 200",
+               G2="Random 200", method = "spearman", n_shuffle = 100, threshold_choice = 0.95, simulate = FALSE)
+
+Cor_mat = matrix(0,nrow = 10,ncol = 10)
+dimnames(Cor_mat) = list(paste0("C1_",1:10), paste0("C2_",1:10))
+names(dimnames(Cor_mat)) = c("Data1","Data2")
+
+p_mat = matrix(0,nrow = 10,ncol = 10)
+dimnames(p_mat) = list(paste0("C1_",1:10), paste0("C2_",1:10))
+names(dimnames(p_mat)) = c("Data1","Data2")
+
+
+for (i in 1:10){
+  threshold = 0.05
+  if (stringent_alpha) {
+    threshold = 0.05/100
+  }
+  
+  estimates = sapply(1:10, function(x) cor.test(as.numeric(Data_1[,i]),as.numeric(Data_2[,x]), method = "spearman")$estimate)
+  p_values = sapply(1:10, function(x) cor.test(as.numeric(Data_1[,i]),as.numeric(Data_2[,x]), method = "spearman")$p.value)
+  #estimates[p_values>threshold | abs(estimates)<estimate_threshold] = 0
+  p_mat[i,] = p_values
+  Cor_mat[i,] = estimates
+}
+
+corrplot::corrplot(Cor_mat, method = "number", p.mat=p_mat, sig.level = threshold,
+                   insig = "blank", title = "\n\nCorrelations Between Data_1 and Data_2")
+find_threshold(Data_1, Data_2,Comparison = "Reconstructed Data",G1="Random 200",
+               G2="Random 200", method = "spearman", n_shuffle = 1000, threshold_choice = 0.15, simulate = FALSE)
+
+# Co-occurance of questions between ICASSO at Test and ICASSO at retest
+
+sources_hc_test = ICASSO_hc_test$sources[ICASSO_hc_test$scores>0.85,1:100]
+n_ICs_hc_test = sum(ICASSO_hc_test$scores>0.85)
+max_source_hc_test = matrix(rep(apply(abs(sources_hc_test),2,max),n_ICs_hc_test),nrow = n_ICs_hc_test, byrow = TRUE)
+thresholds = sapply(1:nrow(sources_hc_test), function(x) quantile(abs(sources_hc_test[x,]),0.9))
+IC_questions_hc_test = data.frame(t(sapply(1:nrow(sources_hc_test), function(x) ifelse(sources_hc_test[x,]>thresholds[x],1,0))))
+colnames(IC_questions_hc_test) = paste0("Q",1:100)
+
+sources_hc_retest = ICASSO_hc_retest$sources[ICASSO_hc_retest$scores>0.85,1:100]
+n_ICs_hc_retest = sum(ICASSO_hc_retest$scores>0.85)
+max_source_hc_retest = matrix(rep(apply(abs(sources_hc_retest),2,max),n_ICs_hc_retest),nrow = n_ICs_hc_retest, byrow = TRUE)
+thresholds = sapply(1:nrow(sources_hc_retest), function(x) quantile(abs(sources_hc_retest[x,]),0.9))
+IC_questions_hc_retest = data.frame(t(sapply(1:nrow(sources_hc_retest), function(x) ifelse(sources_hc_retest[x,]>thresholds[x],1,0))))
+colnames(IC_questions_hc_retest) = paste0("Q",1:100)
+
+sources_mdd_test = ICASSO_mdd_test$sources[ICASSO_mdd_test$scores>0.85,1:100]
+n_ICs_mdd_test = sum(ICASSO_mdd_test$scores>0.85)
+max_source_mdd_test = matrix(rep(apply(abs(sources_mdd_test),2,max),n_ICs_mdd_test),nrow = n_ICs_mdd_test, byrow = TRUE)
+thresholds = sapply(1:nrow(sources_mdd_test), function(x) quantile(abs(sources_mdd_test[x,]),0.9))
+IC_questions_mdd_test = data.frame(t(sapply(1:nrow(sources_mdd_test), function(x) ifelse(sources_mdd_test[x,]>thresholds[x],1,0))))
+colnames(IC_questions_mdd_test) = paste0("Q",1:100)
+
+sources_mdd_retest = ICASSO_mdd_retest$sources[ICASSO_mdd_retest$scores>0.85,1:100]
+n_ICs_mdd_retest = sum(ICASSO_mdd_retest$scores>0.85)
+max_source_mdd_retest = matrix(rep(apply(abs(sources_mdd_retest),2,max),n_ICs_mdd_retest),nrow = n_ICs_mdd_retest, byrow = TRUE)
+thresholds = sapply(1:nrow(sources_mdd_retest), function(x) quantile(abs(sources_mdd_retest[x,]),0.9))
+IC_questions_mdd_retest = data.frame(t(sapply(1:nrow(sources_mdd_retest), function(x) ifelse(sources_mdd_retest[x,]>thresholds[x],1,0))))
+colnames(IC_questions_mdd_retest) = paste0("Q",1:100)
+
+sapply(1:n_ICs_hc_test, function(IC) colnames(IC_questions_hc_test)[IC_questions_hc_test[IC,] == 1])
+sapply(1:n_ICs_hc_retest, function(IC) colnames(IC_questions_hc_retest)[IC_questions_hc_retest[IC,] == 1])
+sapply(1:n_ICs_mdd_test, function(IC) colnames(IC_questions_mdd_test)[IC_questions_mdd_test[IC,] == 1])
+sapply(1:n_ICs_mdd_retest, function(IC) colnames(IC_questions_mdd_retest)[IC_questions_mdd_retest[IC,] == 1])
+
+
+
+IC_questions_cooc_hcTPQ = matrix(nrow = nrow(IC_questions_hc_test), ncol =nrow(tpq_q_cloninger))
+dimnames(IC_questions_cooc_hcTPQ) = list(paste0("IC",1:nrow(IC_questions_hc_test)), names(TPQQuestions))
+
+for (i in 1:nrow(IC_questions_hc_test)){
+  cooc = sapply(1:nrow(tpq_q_cloninger), function(x) mean(which(IC_questions_hc_test[i,]==1) %in% which(tpq_q_cloninger[x,]==1)))
+  IC_questions_cooc_hcTPQ[i,] = cooc
+}
+corrplot(IC_questions_cooc_hcTPQ, title = "\n\n\nPercentage of Questions of ICs in HC at Test and at Retest",
+         cl.lim = c(0,1), col = col <- colorRampPalette(c( "#FFFFFF", "#D1E5F0", "#92C5DE", 
+                                                           "#4393C3", "#2166AC", "#053061"))(200))
+
+
+
+
+IC_questions_cooc_hc = matrix(nrow = nrow(IC_questions_hc_test), ncol =nrow(IC_questions_hc_retest))
+dimnames(IC_questions_cooc_hc) = list(paste0("IC",1:nrow(IC_questions_hc_test)), paste0("IC",1:nrow(IC_questions_hc_retest)))
+
+for (i in 1:nrow(IC_questions_hc_test)){
+  cooc = sapply(1:nrow(IC_questions_hc_retest), function(x) mean(which(IC_questions_hc_test[i,]==1) %in% which(IC_questions_hc_retest[x,]==1)))
+  IC_questions_cooc_hc[i,] = cooc
+}
+corrplot(IC_questions_cooc_hc, title = "\n\n\nPercentage of Questions of ICs in HC at Test and at Retest",
+         cl.lim = c(0,1), col = col <- colorRampPalette(c( "#FFFFFF", "#D1E5F0", "#92C5DE", 
+                                                           "#4393C3", "#2166AC", "#053061"))(200))
+
+
+
+
+
+IC_questions_cooc_mdd = matrix(nrow = nrow(IC_questions_mdd_test), ncol =nrow(IC_questions_mdd_retest))
+dimnames(IC_questions_cooc_mdd) = list(paste0("IC",1:nrow(IC_questions_mdd_test)), paste0("IC",1:nrow(IC_questions_mdd_retest)))
+
+for (i in 1:nrow(IC_questions_mdd_test)){
+  cooc = sapply(1:nrow(IC_questions_mdd_retest), function(x) mean(which(IC_questions_mdd_test[i,]==1) %in% which(IC_questions_mdd_retest[x,]==1)))
+  IC_questions_cooc_mdd[i,] = cooc
+}
+
+
+corrplot(IC_questions_cooc_mdd, title = "\n\n\nPercentage of Questions of ICs in MDD at Test and at Retest",
+         cl.lim = c(0,1), col = col <- colorRampPalette(c( "#FFFFFF", "#D1E5F0", "#92C5DE", 
+                                                           "#4393C3", "#2166AC", "#053061"))(200))
+
+
+
+
+IC_questions_cooc_hcmdd = matrix(nrow = nrow(IC_questions_hc_test), ncol =nrow(IC_questions_mdd_test))
+dimnames(IC_questions_cooc_hcmdd) = list(paste0("IC",1:nrow(IC_questions_hc_test)), paste0("IC",1:nrow(IC_questions_mdd_test)))
+
+for (i in 1:nrow(IC_questions_hc_test)){
+  cooc = sapply(1:nrow(IC_questions_mdd_test), function(x) mean(which(IC_questions_hc_test[i,]==1) %in% which(IC_questions_mdd_test[x,]==1)))
+  IC_questions_cooc_hcmdd[i,] = cooc
+}
+
+
+corrplot(IC_questions_cooc_hcmdd, title = "Percentage of Questions of ICs in HC at Test and MDD at Test",
+         cl.lim = c(0,1), col = col <- colorRampPalette(c( "#FFFFFF", "#D1E5F0", "#92C5DE", 
+                                                           "#4393C3", "#2166AC", "#053061"))(200))
+
+
+View(TPQ_scores)
+matched_inds = match(npz_tpq["IDs"],TPQ_scores$`Final ID`)
+new_tpq = TPQ_scores[matched_inds,]
+new_tpq = new_tpq[complete.cases(new_tpq$`Final ID`),]
+new_tpq[paste0("QO",1:100)] = ifelse(new_tpq[paste0("QO",1:100)] == "TRUE","T","F")
+
+write.table(new_tpq,'/home/asawalma/git/tpq_analysis/data/Tpq Scores.xlsx',row.names = FALSE)
+
+
+
+
+
+# Simple CFA Model
